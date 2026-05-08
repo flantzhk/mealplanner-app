@@ -1,0 +1,1765 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lantz Meal Planner</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23F4F1EC'/%3E%3Cpolygon points='24,16 24,48 50,32' fill='%23C8392B'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cream: "#F4F1EC", sand: "#EAE3D9", ink: "#1A1A1A",
+            terra: "#C8392B", sage: "#6B6B6B", warm: "#6B6B6B",
+            bg0: "#FAFAF7", border: "#E4DDD5",
+          },
+          fontFamily: {
+            display: ["Source Serif 4", "Georgia", "serif"],
+            body: ["Inter", "system-ui", "sans-serif"],
+            mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    html, body { background: #F4F1EC; color: #1A1A1A; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    h1, h2, h3, h4 { font-family: "Source Serif 4", Georgia, serif; font-weight: 400; letter-spacing: -0.005em; }
+    .num { font-variant-numeric: tabular-nums; }
+    /* No border-radius anywhere except small dot/circle UI (rounded-full) */
+    [class*="rounded-"]:not([class*="rounded-full"]) { border-radius: 0 !important; }
+  </style>
+  <script src="shared.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+    const APP_VERSION = "v2.3 · 2026-05-08";
+    const MEALS = ["breakfast", "lunch", "dinner"];
+    const COMPONENTS = ["protein", "vegetable", "carb"];
+    const OPT_COMPONENTS = ["starter", "soup", "salad"];
+    const ALL_COMPONENTS = [...COMPONENTS, ...OPT_COMPONENTS];
+    const COMPONENT_ICONS  = { protein: "🥩", vegetable: "🥦", carb: "🍚", starter: "🍽️", soup: "🍲", salad: "🥗", dessert: "🍮", "meal-prep": "🫙" };
+    const COMPONENT_LABELS = { protein: "Protein", vegetable: "Vegetable", carb: "Carb", starter: "Starter", soup: "Soup", salad: "Salad", dessert: "Dessert", "meal-prep": "Meal Prep" };
+    const ALL_LIB_COMPONENTS = ["protein", "vegetable", "carb", "starter", "soup", "salad", "dessert", "meal-prep"];
+    const getMealObj = (day, meal) => MP.getMealObj(day, meal);
+    const getMealRecipeIds = (day, meal) => MP.getMealRecipeIds(day, meal);
+
+    function lastEatenPill(le, lang) {
+      if (le.status === "never") {
+        return <span className="text-xs text-warm/60">— {MP.i18n.t(lang, "never")}</span>;
+      }
+      const color = le.status === "recent" ? "bg-terra/15 text-terra"
+                 : le.status === "warming" ? "bg-amber-200/60 text-amber-900"
+                 : "bg-sage/20 text-sage";
+      return <span className={`text-xs px-2 py-0.5 rounded-full ${color} num`}>{le.days}{MP.i18n.t(lang, "daysAgo")}</span>;
+    }
+
+    function Modal({ open, onClose, children, title }) {
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-40 bg-ink/40 flex items-start justify-center p-4 overflow-y-auto"
+             onClick={onClose}>
+          <div className="bg-cream w-full max-w-3xl rounded-2xl shadow-xl mt-10 mb-10"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-warm/10">
+              <h2 className="font-display text-xl">{title}</h2>
+              <button onClick={onClose} className="text-warm text-xl leading-none">×</button>
+            </div>
+            <div className="p-5">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    const PROTEIN_TAGS = ["chicken","beef","pork","fish","salmon","shrimp","squid","tuna","seafood","halloumi","bacon","egg","tofu"];
+    const STYLE_TAGS = ["stir-fry","roast","steamed","one-pan","sheet-pan","fried","quick","make-ahead","grilled","braised","baked"];
+
+    // RecipePicker with protein + cooking style tag filtering
+    function RecipePicker({ mealType, componentType, recipes, eatenLog, onPick, lang, usedIds }) {
+      const [q, setQ] = useState("");
+      const [protein, setProtein] = useState("all");
+      const [style, setStyle] = useState("all");
+      const [showAll, setShowAll] = useState(false);
+      const today = MP.date.hkToday();
+
+      const availableProteins = useMemo(() => PROTEIN_TAGS.filter((t) => recipes.some((r) => (r.tags || []).includes(t))), [recipes]);
+      const availableStyles = useMemo(() => ["all", ...STYLE_TAGS.filter((t) => recipes.some((r) => (r.tags || []).includes(t)))], [recipes]);
+
+      const filtered = useMemo(() => {
+        return recipes
+          .filter((r) => !r.meal_type || r.meal_type.includes(mealType))
+          .filter((r) => {
+            if (!componentType || showAll) return true;
+            if (r.component_type) return r.component_type === componentType;
+            return (r.tags || []).includes(componentType);
+          })
+          .filter((r) => protein === "all" ? true : (r.tags || []).includes(protein))
+          .filter((r) => style === "all" ? true : (r.tags || []).includes(style))
+          .filter((r) => (q ? r.name.toLowerCase().includes(q.toLowerCase()) : true));
+      }, [recipes, mealType, componentType, protein, style, q, showAll]);
+
+      // Change 8: recently used — 6 recipe IDs with most-recent dates for this meal type
+      const recent = useMemo(() => {
+        return recipes
+          .filter(r => !r.meal_type || r.meal_type.includes(mealType))
+          .map(r => ({ r, le: MP.lastEaten(r.id, eatenLog, today) }))
+          .filter(({le}) => le.status !== 'never')
+          .sort((a, b) => (a.le.days || 999) - (b.le.days || 999))
+          .slice(0, 6)
+          .map(({r}) => r);
+      }, [recipes, eatenLog, mealType]);
+
+      return (
+        <div>
+          {componentType && (
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{COMPONENT_ICONS[componentType]}</span>
+                <span className="font-display text-lg">Picking {COMPONENT_LABELS[componentType]}</span>
+              </div>
+              <button onClick={() => setShowAll(v => !v)}
+                className={`text-xs px-2 py-1 rounded-full ring-1 transition ${showAll ? "bg-terra text-cream ring-terra" : "bg-white text-warm ring-warm/20"}`}>
+                {showAll ? "Showing all" : "Show all types"}
+              </button>
+            </div>
+          )}
+          {/* Recently used horizontal scroll row */}
+          {recent.length > 0 && (
+            <div className="mb-4">
+              <div className="text-xs uppercase tracking-wide text-warm mb-2">Recently used</div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {recent.map(r => (
+                  <button key={r.id} onClick={() => onPick(r.id)}
+                    className="shrink-0 flex flex-col items-center bg-white rounded-xl p-2 ring-1 ring-black/5 hover:ring-terra/40 w-24 text-center">
+                    {MP.recipeImage(r) && <img src={MP.recipeImage(r)} className="w-20 h-14 object-cover rounded-lg mb-1" />}
+                    <span className="text-xs leading-tight line-clamp-2">{r.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Protein type pills */}
+          {availableProteins.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs uppercase tracking-wide text-warm mb-2">Protein</div>
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => setProtein("all")}
+                  className={`px-3 py-1 rounded-full text-sm ${protein === "all" ? "bg-ink text-cream" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                  All
+                </button>
+                {availableProteins.map((t) => (
+                  <button key={t} onClick={() => setProtein((p) => p === t ? "all" : t)}
+                    className={`px-3 py-1 rounded-full text-sm capitalize ${protein === t ? "bg-terra text-cream" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Search + cooking style */}
+          <div className="flex gap-2 mb-4">
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="Search…"
+              className="flex-1 rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+            {availableStyles.length > 1 && (
+              <select value={style} onChange={(e) => setStyle(e.target.value)}
+                className="rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm capitalize">
+                {availableStyles.map((s) => <option key={s} value={s}>{s === "all" ? "Any style" : s}</option>)}
+              </select>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {filtered.map((r) => {
+              const le = MP.lastEaten(r.id, eatenLog, today);
+              const used = usedIds.includes(r.id);
+              return (
+                <button key={r.id}
+                  onClick={() => onPick(r.id)}
+                  className={`text-left bg-white rounded-xl overflow-hidden shadow-sm ring-1 ring-black/5 hover:ring-terra/40 transition ${used ? "opacity-60" : ""}`}>
+                  {MP.recipeImage(r) && (
+                    <img src={MP.recipeImage(r)} alt="" className="w-full h-28 object-cover"
+                         onLoad={(e) => {
+                           if (MP.isYoutubePlaceholder(e.target)) {
+                             const src = e.target.src;
+                             if (src.includes("maxresdefault")) { e.target.src = src.replace("maxresdefault", "hqdefault"); return; }
+                             if (r.hero_image && src !== r.hero_image) { e.target.src = r.hero_image; return; }
+                             e.target.style.display = "none";
+                           }
+                         }}
+                         onError={(e) => {
+                           const src = e.target.src;
+                           if (src.includes("maxresdefault")) { e.target.src = src.replace("maxresdefault", "hqdefault"); return; }
+                           if (r.hero_image && src !== r.hero_image) { e.target.src = r.hero_image; return; }
+                           e.target.style.display = "none";
+                         }} />
+                  )}
+                  <div className="p-3">
+                    {/* Change 1: text-[17px] -> text-base */}
+                    <div className="font-display text-base leading-tight">{r.name}</div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-xs text-warm">
+                        {r.cuisine} · <span className="num">{(r.prep_time_mins || 0) + (r.cook_time_mins || 0)}</span>m
+                      </span>
+                      {lastEatenPill(le, lang)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // Change 5: Shopping filter persistence via sessionStorage
+    function ShoppingList({ recipes, plan, lang, pantry, onToggle, sources, onSetSource, extras, onAddExtra, onToggleExtra, onRemoveExtra }) {
+      const groups = MP.buildShoppingList(recipes, plan, sources);
+      const [newItem, setNewItem] = useState("");
+      const [newSource, setNewSource] = useState("supermarket");
+      // Change 5: persist filter to sessionStorage
+      const [filter, setFilter] = useState(() => sessionStorage.getItem('mpShopFilter') || 'all');
+      const sourceLabels = {
+        "wet-market": "🥬 Wet market", "supermarket": "🛒 Fusion / Marketplace",
+        "hktvmall": "📦 HKTVmall", "other": "Other",
+      };
+      const categoryLabels = {
+        meat: "Meat & Seafood", produce: "Vegetables & Fruit",
+        dairy: "Dairy & Eggs", pantry: "Pantry & Dry Goods",
+        bakery: "Bread & Bakery", frozen: "Frozen", other: "Other",
+      };
+      const sourceOrder = ["wet-market", "supermarket", "hktvmall", "other"];
+      const key = (it) => (it.item || "").toLowerCase().trim();
+
+      // Change 5: applyFilter helper
+      function applyFilter(f) { setFilter(f); sessionStorage.setItem('mpShopFilter', f); }
+
+      // Per-section "remaining" counts so the nav shows how much is left in each shop.
+      const counts = {};
+      for (const src of sourceOrder) {
+        const g = groups[src];
+        if (!g) continue;
+        let remaining = 0, total = 0;
+        for (const items of Object.values(g)) for (const it of items) {
+          total++; if (!pantry[key(it)]) remaining++;
+        }
+        counts[src] = { remaining, total };
+      }
+      const extrasRemaining = (extras || []).filter((x) => !x.done).length;
+      const extrasTotal = (extras || []).length;
+
+      const showExtras = onAddExtra && (filter === "all" || filter === "extras");
+      const showSource = (src) => filter === "all" || filter === src;
+
+      // Change 7: WhatsApp share function
+      function shareWhatsApp() {
+        const sourceLabelsPlain = { "wet-market": "Wet market", "supermarket": "Supermarket", "hktvmall": "HKTVmall", "other": "Other" };
+        let text = `Shopping list — week of ${plan.week_start}\n\n`;
+        for (const src of ["wet-market","supermarket","hktvmall","other"]) {
+          const g = groups[src]; if (!g) continue;
+          text += `*${sourceLabelsPlain[src]}*\n`;
+          for (const [cat, items] of Object.entries(g)) {
+            for (const it of items) {
+              const k = (it.item||"").toLowerCase().trim();
+              if (pantry[k]) continue; // skip already-have items
+              text += `• ${Number(it.amount.toFixed(2))} ${it.unit} ${it.item}\n`;
+            }
+          }
+          text += "\n";
+        }
+        if (extras && extras.filter(x=>!x.done).length > 0) {
+          text += `*Extras*\n`;
+          for (const x of extras.filter(e=>!e.done)) text += `• ${x.item}\n`;
+        }
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+      }
+
+      return (
+        <div>
+          <div className="text-sm text-warm mb-3">
+            Week of <span className="num">{plan.week_start}</span> · Serves <span className="num">{plan.serves || 4}</span>
+            {/* Change 7: WhatsApp share button */}
+            <div className="mt-2">
+              <button onClick={shareWhatsApp} className="flex items-center gap-1.5 bg-sage text-white px-3 py-1.5 rounded-lg text-sm">
+                📱 Share via WhatsApp
+              </button>
+            </div>
+            <div className="mt-1 text-xs">Tap a shop below to focus on just that list. Ticked items are already in the pantry.</div>
+          </div>
+
+          {/* Jump / filter nav — sticky so it stays reachable while scrolling */}
+          {/* Change 1: unified active state for all pills */}
+          <nav className="sticky top-0 z-10 -mx-5 px-5 py-3 mb-4 bg-cream/95 backdrop-blur border-b border-warm/10 flex flex-wrap gap-2">
+            <button onClick={() => applyFilter("all")}
+              className={`px-3 py-1.5 rounded-full text-sm ring-1 ${filter === "all" ? "ring-2 ring-terra text-terra bg-white" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+              All
+            </button>
+            {sourceOrder.map((src) => {
+              if (!counts[src]) return null;
+              const active = filter === src;
+              const { remaining, total } = counts[src];
+              return (
+                <button key={src} onClick={() => applyFilter(src)}
+                  className={`px-3 py-1.5 rounded-full text-sm ring-1 ${active ? "ring-2 ring-terra text-terra bg-white" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                  {sourceLabels[src]}
+                  <span className={`ml-1.5 num text-xs ${active ? "text-terra/80" : "text-warm"}`}>{remaining}/{total}</span>
+                </button>
+              );
+            })}
+            {onAddExtra && extrasTotal > 0 && (
+              <button onClick={() => applyFilter("extras")}
+                className={`px-3 py-1.5 rounded-full text-sm ring-1 ${filter === "extras" ? "ring-2 ring-terra text-terra bg-white" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                ➕ Extras <span className={`ml-1.5 num text-xs ${filter === "extras" ? "text-terra/80" : "text-warm"}`}>{extrasRemaining}/{extrasTotal}</span>
+              </button>
+            )}
+          </nav>
+
+          {showExtras && (
+            <div className="mb-5 p-4 rounded-xl bg-sand/40">
+              <div className="font-display text-base mb-2">➕ Extras (non-recipe)</div>
+              <form className="flex flex-wrap gap-2 items-center"
+                onSubmit={(e) => { e.preventDefault(); if (newItem.trim()) { onAddExtra(newItem, newSource); setNewItem(""); } }}>
+                <input value={newItem} onChange={(e) => setNewItem(e.target.value)}
+                  placeholder="e.g. toilet paper"
+                  className="flex-1 min-w-[10rem] rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+                <select value={newSource} onChange={(e) => setNewSource(e.target.value)}
+                  className="text-sm rounded-lg border border-warm/20 bg-white px-2 py-2">
+                  <option value="wet-market">🥬 Wet market</option>
+                  <option value="supermarket">🛒 Supermarket</option>
+                  <option value="hktvmall">📦 HKTVmall</option>
+                  <option value="other">Other</option>
+                </select>
+                <button type="submit" className="bg-terra text-cream px-4 py-2 rounded-lg text-sm">Add</button>
+              </form>
+              {extras && extras.length > 0 && (
+                <ul className="mt-3 space-y-1">
+                  {extras.map((x) => (
+                    <li key={x.id} className={`flex items-center gap-2 text-sm ${x.done ? "opacity-40 line-through" : ""}`}>
+                      <input type="checkbox" className="accent-sage w-4 h-4"
+                        checked={!!x.done}
+                        onChange={(e) => onToggleExtra(x.id, e.target.checked)} />
+                      <span className="flex-1">{x.item}</span>
+                      <span className="text-xs text-warm">{(sourceLabels[x.source] || x.source)}</span>
+                      <button onClick={() => onRemoveExtra(x.id)}
+                        className="text-xs text-warm/60 hover:text-terra">×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {sourceOrder.map((src) => {
+            const g = groups[src];
+            if (!g) return null;
+            if (!showSource(src)) return null;
+            return (
+              <div key={src} className="mb-6">
+                <h3 className="font-display text-lg text-terra">{sourceLabels[src] || src}</h3>
+                {Object.entries(g).map(([cat, items]) => (
+                  <div key={cat} className="mt-2">
+                    <div className="uppercase tracking-wide text-xs text-warm mb-1">{categoryLabels[cat] || cat}</div>
+                    <ul className="space-y-0.5">
+                      {items.map((it, i) => {
+                        const k = key(it);
+                        const has = !!pantry[k];
+                        return (
+                          <li key={i} className={`flex flex-wrap gap-2 text-sm items-center py-1 ${has ? "opacity-40 line-through" : ""}`}>
+                            <input type="checkbox" className="accent-sage w-4 h-4"
+                              checked={has}
+                              onChange={(e) => onToggle(k, e.target.checked)} />
+                            <span className="num text-warm min-w-[5rem]">
+                              {Number(it.amount.toFixed(2)).toString()} {it.unit}
+                            </span>
+                            <span className="flex-1 min-w-[6rem]">{it.item}</span>
+                            {onSetSource && (
+                              <select value={sources?.[k] || it.source || ""}
+                                onChange={(e) => onSetSource(it.item, e.target.value)}
+                                className="text-xs rounded border border-warm/20 bg-white px-2 py-1">
+                                <option value="wet-market">🥬 Wet market</option>
+                                <option value="supermarket">🛒 Supermarket</option>
+                                <option value="hktvmall">📦 HKTVmall</option>
+                                <option value="other">Other</option>
+                              </select>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function YoutubeEditor({ recipe }) {
+      const [editing, setEditing] = useState(false);
+      const [val, setVal] = useState(recipe.youtube_url || "");
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState("");
+      async function save() {
+        setBusy(true); setMsg("");
+        try {
+          await MP.api.upsertRecipe(recipe.id, { ...recipe, youtube_url: val || null });
+          recipe.youtube_url = val || null; // mutate for immediate image refresh in modal
+          setMsg("✓ Saved — image will update on next load.");
+          setEditing(false);
+        } catch (e) { setMsg("Failed: " + e.message); }
+        finally { setBusy(false); }
+      }
+      if (!editing) {
+        return (
+          <div className="flex items-center gap-2 flex-wrap">
+            {recipe.youtube_url ? (
+              <a href={recipe.youtube_url} target="_blank" rel="noopener"
+                className="inline-flex items-center gap-2 bg-terra text-cream px-4 py-2 rounded-full text-sm">
+                ▶ Watch video
+              </a>
+            ) : (
+              <span className="text-sm text-warm/70 italic">No video yet</span>
+            )}
+            <button onClick={() => setEditing(true)} className="text-xs underline text-warm">
+              {recipe.youtube_url ? "Change video" : "Paste YouTube link"}
+            </button>
+            {msg && <span className="text-xs text-warm">{msg}</span>}
+          </div>
+        );
+      }
+      return (
+        <div className="flex flex-wrap gap-2 items-center">
+          <input value={val} onChange={(e) => setVal(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=…"
+            className="flex-1 min-w-[18rem] rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+          <button onClick={save} disabled={busy}
+            className="bg-ink text-cream px-3 py-2 rounded-lg text-sm disabled:opacity-60">
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button onClick={() => { setVal(recipe.youtube_url || ""); setEditing(false); }}
+            className="text-warm px-2 text-sm">Cancel</button>
+          <div className="text-xs text-warm basis-full">
+            Pasting a link will also use its thumbnail as the recipe photo automatically.
+          </div>
+        </div>
+      );
+    }
+
+    function RecipePreview({ recipe, meal, mealTime, mealServes, planServes, onChange, onRemove, onUpdate, onEdit, pantry, onTogglePantry, sources, onSetSource }) {
+      const img = MP.recipeImage(recipe);
+      const effTime = mealTime || MP.schedule.defaultMealTime(meal);
+      const effServes = mealServes || planServes || recipe.serves_base || 4;
+      const sched = MP.schedule.forMeal(meal, recipe, { mealTime: effTime });
+      return (
+        <div>
+          {img && (
+            <img src={img} alt="" className="w-full h-48 object-cover rounded-xl mb-4"
+              onLoad={(e) => {
+                if (!MP.isYoutubePlaceholder(e.target)) return;
+                const s = e.target.src;
+                if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                e.target.style.display = "none";
+              }}
+              onError={(e) => {
+                const s = e.target.src;
+                if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                e.target.style.display = "none";
+              }} />
+          )}
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <div className="text-xs uppercase text-warm">{meal}</div>
+              <h3 className="font-display text-2xl">{recipe.name}</h3>
+              <div className="text-sm text-warm mt-1">
+                {recipe.cuisine} · recipe base <span className="num">{recipe.serves_base}</span> · prep <span className="num">{recipe.prep_time_mins}</span>m · cook <span className="num">{recipe.cook_time_mins}</span>m
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-xs text-warm">Start</div>
+              <div className="font-display text-xl num">{sched.startTime}</div>
+            </div>
+          </div>
+          {onUpdate && (
+            <div className="mb-4 p-4 rounded-xl bg-sand/50 flex flex-wrap gap-4 items-end">
+              <label className="text-sm text-warm">
+                <div className="text-xs uppercase tracking-wide">Serve at</div>
+                <input type="time" value={effTime}
+                  onChange={(e) => onUpdate({ time: e.target.value, serves: effServes })}
+                  className="mt-1 rounded-lg border border-warm/20 bg-white px-2 py-1 num" />
+              </label>
+              <label className="text-sm text-warm">
+                <div className="text-xs uppercase tracking-wide">Eating</div>
+                <select value={effServes}
+                  onChange={(e) => onUpdate({ time: effTime, serves: Number(e.target.value) })}
+                  className="mt-1 rounded-lg border border-warm/20 bg-white px-2 py-1 num">
+                  {[1,2,3,4,5,6,7,8].map((n) => <option key={n} value={n}>{n} {n===1?"person":"people"}</option>)}
+                </select>
+              </label>
+              <div className="text-xs text-warm ml-auto">
+                Start {sched.startTime} · ingredients scale to {effServes}
+              </div>
+            </div>
+          )}
+          {onUpdate && (
+            <YoutubeEditor recipe={recipe} />
+          )}
+          {!onUpdate && recipe.youtube_url && (
+            <a href={recipe.youtube_url} target="_blank" rel="noopener"
+              className="inline-flex items-center gap-2 bg-terra text-cream px-4 py-2 rounded-full text-sm">
+              ▶ Watch video
+            </a>
+          )}
+          <h4 className="font-display text-lg mt-5">Ingredients</h4>
+          {onSetSource && (
+            <p className="text-xs text-warm mb-2">Set where you buy each one — saved globally so every recipe using it will remember.</p>
+          )}
+          {/* Change 1: text-[15px] -> text-sm */}
+          <ul className="text-sm space-y-1">
+            {(recipe.ingredients || []).map((ing, i) => {
+              const k = (ing.item || "").toLowerCase().trim();
+              const savedSource = (sources && sources[k]) || ing.source || "";
+              const inPantry = pantry && !!pantry[k];
+              const amt = ing.amount != null ? Number(Number(ing.amount).toFixed(2)) : "";
+              return (
+                <li key={i} className={`flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 px-2 rounded-lg ${inPantry ? "bg-sage/10" : ""}`}>
+                  <span className="num text-warm min-w-[4.5rem]">{amt} {ing.unit || ""}</span>
+                  <span className={`flex-1 min-w-[6rem] ${inPantry ? "line-through text-warm" : ""}`}>{ing.item}</span>
+                  {onSetSource && (
+                    <select value={savedSource}
+                      onChange={(e) => onSetSource(ing.item, e.target.value)}
+                      className="text-xs rounded border border-warm/20 bg-white px-2 py-1">
+                      <option value="">— where? —</option>
+                      <option value="wet-market">🥬 Wet market</option>
+                      <option value="supermarket">🛒 Supermarket</option>
+                      <option value="hktvmall">📦 HKTVmall</option>
+                      <option value="other">Other</option>
+                    </select>
+                  )}
+                  {onTogglePantry && (
+                    <label className="text-xs text-warm flex items-center gap-1 cursor-pointer select-none">
+                      <input type="checkbox" checked={inPantry}
+                        onChange={(e) => onTogglePantry(ing.item, e.target.checked)}
+                        className="accent-sage" />
+                      In pantry
+                    </label>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <h4 className="font-display text-lg mt-5">Steps</h4>
+          <ol className="space-y-3 mt-1">
+            {recipe.steps.map((s) => (
+              <li key={s.step} className="flex gap-3">
+                <span className="font-display text-terra text-lg min-w-[1.5rem]">{s.step}</span>
+                {/* Change 1: text-[15px] -> text-sm */}
+                <div className="text-sm leading-relaxed">{s.instruction}</div>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-6 flex gap-2 flex-wrap">
+            <button onClick={onChange} className="bg-sand text-ink px-4 py-2 rounded-lg text-sm">Change</button>
+            {onEdit && (
+              <button onClick={onEdit} className="bg-sand text-ink px-4 py-2 rounded-lg text-sm">✏️ Edit recipe</button>
+            )}
+            {onRemove && (
+              <button onClick={onRemove} className="ml-auto bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg text-sm transition">Remove</button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function RecipeLibrary({ recipes, eatenLog, onOpen, onNew, lang }) {
+      const [q, setQ] = useState("");
+      const [cuisine, setCuisine] = useState("all");
+      const [mealType, setMealType] = useState("all");
+      const [compFilter, setCompFilter] = useState("all");
+      const today = MP.date.hkToday();
+      const cuisines = useMemo(() => ["all", ...Array.from(new Set(recipes.map((r) => r.cuisine).filter(Boolean)))], [recipes]);
+      const filtered = useMemo(() => {
+        return recipes
+          .filter((r) => mealType === "all" ? true : (r.meal_type || []).includes(mealType))
+          .filter((r) => cuisine === "all" ? true : r.cuisine === cuisine)
+          .filter((r) => compFilter === "all" ? true : r.component_type === compFilter)
+          .filter((r) => q ? r.name.toLowerCase().includes(q.toLowerCase()) : true);
+      }, [recipes, mealType, cuisine, compFilter, q]);
+      return (
+        <div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…"
+              className="flex-1 min-w-[10rem] rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+            <select value={mealType} onChange={(e) => setMealType(e.target.value)}
+              className="rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm">
+              <option value="all">Any meal</option>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+            </select>
+            <select value={cuisine} onChange={(e) => setCuisine(e.target.value)}
+              className="rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm">
+              {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            <button onClick={() => setCompFilter("all")}
+              className={`text-xs px-2.5 py-1 rounded-full ring-1 transition ${compFilter === "all" ? "bg-terra text-cream ring-terra" : "bg-white text-warm ring-warm/20"}`}>
+              All
+            </button>
+            {ALL_LIB_COMPONENTS.map((c) => (
+              <button key={c} onClick={() => setCompFilter(c)}
+                className={`text-xs px-2.5 py-1 rounded-full ring-1 transition ${compFilter === c ? "bg-terra text-cream ring-terra" : "bg-white text-warm ring-warm/20"}`}>
+                {COMPONENT_ICONS[c]} {COMPONENT_LABELS[c]}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-warm num">{filtered.length} of {recipes.length} recipes</div>
+            {onNew && <button onClick={() => onNew(null)} className="bg-terra text-cream px-3 py-1.5 rounded-lg text-sm">+ New recipe</button>}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {filtered.map((r) => {
+              const le = MP.lastEaten(r.id, eatenLog, today);
+              return (
+                <div key={r.id} className="relative group text-left bg-white rounded-xl overflow-hidden shadow-sm ring-1 ring-black/5 hover:ring-terra/40 transition">
+                <button onClick={() => onOpen(r)} className="w-full text-left">
+                  {MP.recipeImage(r) && (
+                    <img src={MP.recipeImage(r)} alt="" className="w-full h-28 object-cover"
+                      onLoad={(e) => {
+                        if (!MP.isYoutubePlaceholder(e.target)) return;
+                        const s = e.target.src;
+                        if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                        if (r.hero_image && s !== r.hero_image) { e.target.src = r.hero_image; return; }
+                        e.target.style.display = "none";
+                      }}
+                      onError={(e) => {
+                        const s = e.target.src;
+                        if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                        if (r.hero_image && s !== r.hero_image) { e.target.src = r.hero_image; return; }
+                        e.target.style.display = "none";
+                      }} />
+                  )}
+                  <div className="p-3">
+                    {/* Change 1: text-[16px] -> text-base */}
+                    <div className="font-display text-base leading-tight">{r.name}</div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-xs text-warm">
+                        {r.cuisine} · <span className="num">{(r.prep_time_mins || 0) + (r.cook_time_mins || 0)}</span>m
+                      </span>
+                      {lastEatenPill(le, lang)}
+                    </div>
+                    <div className="mt-1 text-[11px] uppercase tracking-wide text-warm/70">
+                      {(r.meal_type || []).join(" · ")}
+                    </div>
+                  </div>
+                </button>
+                {onNew && (
+                  <button onClick={(e) => { e.stopPropagation(); onNew(r); }}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition bg-white/90 text-warm text-xs px-2 py-1 rounded-lg shadow ring-1 ring-warm/20">
+                    ✏️
+                  </button>
+                )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- RecipeForm ----------
+    // create: pass recipe=null
+    // edit:   pass the existing recipe object
+    // onSave(savedRecipe)  — called after successful PUT
+    // onDelete()           — called after successful DELETE
+
+    const BLANK_INGREDIENT = { item: "", amount: "", unit: "g", category: "produce", source: "wet-market", scales: "linear" };
+    const BLANK_STEP = { instruction: "", instruction_tl: "", instruction_il: "" };
+
+    function RecipeForm({ recipe: initRecipe, onSave, onDelete, onCancel }) {
+      const isNew = !initRecipe;
+      const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+      const [form, setForm] = useState(() => initRecipe ? {
+        ...initRecipe,
+        // Normalise fields that may be null/missing in KV data
+        ingredients: initRecipe.ingredients && initRecipe.ingredients.length > 0
+          ? initRecipe.ingredients : [{ ...BLANK_INGREDIENT }],
+        steps: initRecipe.steps && initRecipe.steps.length > 0
+          ? initRecipe.steps : [{ step: 1, ...BLANK_STEP }],
+        dependencies: initRecipe.dependencies || [],
+        meal_type: initRecipe.meal_type || ["dinner"],
+      } : {
+        id: "", name: "", name_tl: "", name_il: "",
+        cuisine: "", meal_type: ["dinner"], component_type: "",
+        serves_base: 4, prep_time_mins: 15, cook_time_mins: 30, active_time_mins: 20,
+        estimated_cost_hkd: "",
+        youtube_url: "", hero_image: "",
+        ingredients: [{ ...BLANK_INGREDIENT }],
+        steps: [{ step: 1, ...BLANK_STEP }],
+        dependencies: [],
+        translations_verified: false,
+      });
+
+      const [busy, setBusy] = useState(false);
+      const [err, setErr] = useState("");
+      const [confirmDel, setConfirmDel] = useState(false);
+      const [showTrans, setShowTrans] = useState(false);
+
+      function setF(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+      // ingredients helpers
+      function setIng(i, k, v) {
+        setForm((f) => { const ings = [...f.ingredients]; ings[i] = { ...ings[i], [k]: v }; return { ...f, ingredients: ings }; });
+      }
+      function addIng() { setForm((f) => ({ ...f, ingredients: [...f.ingredients, { ...BLANK_INGREDIENT }] })); }
+      function removeIng(i) { setForm((f) => ({ ...f, ingredients: f.ingredients.filter((_, j) => j !== i) })); }
+
+      // steps helpers
+      function setStep(i, k, v) {
+        setForm((f) => { const ss = [...f.steps]; ss[i] = { ...ss[i], [k]: v }; return { ...f, steps: ss }; });
+      }
+      function addStep() {
+        setForm((f) => ({ ...f, steps: [...f.steps, { step: f.steps.length + 1, ...BLANK_STEP }] }));
+      }
+      function removeStep(i) {
+        setForm((f) => ({ ...f, steps: f.steps.filter((_, j) => j !== i).map((s, j) => ({ ...s, step: j + 1 })) }));
+      }
+
+      // dependencies helpers
+      function setDep(i, k, v) {
+        setForm((f) => { const ds = [...f.dependencies]; ds[i] = { ...ds[i], [k]: v }; return { ...f, dependencies: ds }; });
+      }
+      function addDep() { setForm((f) => ({ ...f, dependencies: [...f.dependencies, { type: "marinate", hours_before: 2 }] })); }
+      function removeDep(i) { setForm((f) => ({ ...f, dependencies: f.dependencies.filter((_, j) => j !== i) })); }
+
+      async function save() {
+        setErr(""); setBusy(true);
+        try {
+          const id = form.id || slug(form.name) || `recipe-${Date.now()}`;
+          const payload = {
+            ...form, id,
+            serves_base: Number(form.serves_base) || 4,
+            prep_time_mins: Number(form.prep_time_mins) || 0,
+            cook_time_mins: Number(form.cook_time_mins) || 0,
+            active_time_mins: Number(form.active_time_mins) || 0,
+            estimated_cost_hkd: form.estimated_cost_hkd ? Number(form.estimated_cost_hkd) : undefined,
+            ingredients: form.ingredients
+              .filter((i) => i.item.trim())
+              .map((i) => ({ ...i, amount: Number(i.amount) || 0 })),
+            steps: form.steps.filter((s) => s.instruction.trim()),
+          };
+          const saved = await MP.api.upsertRecipe(id, payload);
+          onSave(saved || payload);
+        } catch (e) { setErr(e.message); }
+        finally { setBusy(false); }
+      }
+
+      async function del() {
+        setBusy(true);
+        try {
+          await MP.api.deleteRecipe(form.id);
+          onDelete();
+        } catch (e) { setErr(e.message); setBusy(false); }
+      }
+
+      const inputCls = "w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm";
+      const labelCls = "block text-xs uppercase tracking-wide text-warm mb-1";
+
+      return (
+        <div className="space-y-6">
+          {/* Basic info */}
+          <section className="p-4">
+            <h4 className="font-display text-lg mb-3">Basic info</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className={labelCls}>Recipe name (English) *</label>
+                <input value={form.name} onChange={(e) => {
+                  setF("name", e.target.value);
+                  if (isNew) setF("id", slug(e.target.value));
+                }} className={inputCls} />
+              </div>
+              {isNew && (
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>ID (auto-generated, lowercase-hyphens)</label>
+                  <input value={form.id} onChange={(e) => setF("id", e.target.value)} className={inputCls} />
+                </div>
+              )}
+              <div>
+                <label className={labelCls}>Cuisine</label>
+                <input value={form.cuisine} onChange={(e) => setF("cuisine", e.target.value)}
+                  list="cuisine-list" className={inputCls} />
+                <datalist id="cuisine-list">
+                  {["Filipino","Chinese","Western","Italian","Thai","Japanese","Indian","Korean","Middle Eastern"].map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className={labelCls}>Component type</label>
+                <select value={form.component_type || ""} onChange={(e) => setF("component_type", e.target.value)} className={inputCls}>
+                  <option value="">— any (shows in all slots) —</option>
+                  <option value="protein">🥩 Protein</option>
+                  <option value="vegetable">🥦 Vegetable</option>
+                  <option value="carb">🍚 Carb</option>
+                  <option value="starter">🍽️ Starter</option>
+                  <option value="soup">🍲 Soup</option>
+                  <option value="salad">🥗 Salad</option>
+                  <option value="dessert">🍮 Dessert</option>
+                  <option value="meal-prep">🫙 Meal Prep</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Meal type</label>
+                <div className="flex gap-3 pt-1">
+                  {["breakfast","lunch","dinner"].map((m) => (
+                    <label key={m} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input type="checkbox" className="accent-terra"
+                        checked={(form.meal_type || []).includes(m)}
+                        onChange={(e) => setF("meal_type", e.target.checked
+                          ? [...(form.meal_type || []), m]
+                          : (form.meal_type || []).filter((x) => x !== m))} />
+                      {m}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Serves (base)</label>
+                <input type="number" min="1" max="20" value={form.serves_base}
+                  onChange={(e) => setF("serves_base", e.target.value)} className={inputCls} />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className={labelCls}>Prep (min)</label>
+                  <input type="number" min="0" value={form.prep_time_mins}
+                    onChange={(e) => setF("prep_time_mins", e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Cook (min)</label>
+                  <input type="number" min="0" value={form.cook_time_mins}
+                    onChange={(e) => setF("cook_time_mins", e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Active (min)</label>
+                  <input type="number" min="0" value={form.active_time_mins}
+                    onChange={(e) => setF("active_time_mins", e.target.value)} className={inputCls} />
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Est. cost (HKD)</label>
+                <input type="number" min="0" value={form.estimated_cost_hkd}
+                  onChange={(e) => setF("estimated_cost_hkd", e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>YouTube URL</label>
+                <input value={form.youtube_url || ""} onChange={(e) => setF("youtube_url", e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Hero image URL</label>
+                <input value={form.hero_image || ""} onChange={(e) => setF("hero_image", e.target.value)} className={inputCls} />
+              </div>
+            </div>
+          </section>
+
+          {/* Translations */}
+          <section>
+            <button type="button" onClick={() => setShowTrans((v) => !v)}
+              className="text-sm text-terra underline">
+              {showTrans ? "▲ Hide" : "▼ Show"} Tagalog / Ilocano name translations
+            </button>
+            {showTrans && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                <div>
+                  <label className={labelCls}>Name — Tagalog</label>
+                  <input value={form.name_tl || ""} onChange={(e) => setF("name_tl", e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Name — Ilocano</label>
+                  <input value={form.name_il || ""} onChange={(e) => setF("name_il", e.target.value)} className={inputCls} />
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Dependencies */}
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-display text-lg">Dependencies</h4>
+              <button type="button" onClick={addDep}
+                className="text-sm bg-sand text-ink px-3 py-1 rounded-lg">+ Add</button>
+            </div>
+            <p className="text-xs text-warm mb-3">Things that need to happen before cooking starts (marinate, defrost).</p>
+            {(form.dependencies || []).length === 0 && <p className="text-sm text-warm/60 italic">None</p>}
+            {(form.dependencies || []).map((d, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <select value={d.type} onChange={(e) => setDep(i, "type", e.target.value)}
+                  className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                  <option value="marinate">Marinate</option>
+                  <option value="defrost">Defrost</option>
+                </select>
+                <input type="number" min="0.5" step="0.5" value={d.hours_before}
+                  onChange={(e) => setDep(i, "hours_before", Number(e.target.value))}
+                  className="w-20 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm" />
+                <span className="text-sm text-warm">hrs before</span>
+                <button type="button" onClick={() => removeDep(i)} className="text-warm/50 hover:text-terra ml-auto">×</button>
+              </div>
+            ))}
+          </section>
+
+          {/* Ingredients — Change 4: responsive mobile stacked / desktop grid */}
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-display text-lg">Ingredients</h4>
+              <button type="button" onClick={addIng}
+                className="text-sm bg-sand text-ink px-3 py-1 rounded-lg">+ Add</button>
+            </div>
+            {/* Mobile stacked cards */}
+            <div className="sm:hidden space-y-3">
+              {(form.ingredients || []).map((ing, i) => (
+                <div key={i} className="bg-sand/30 rounded-xl p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input value={ing.item} onChange={(e) => setIng(i, "item", e.target.value)} placeholder="Item name" className="flex-1 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm" />
+                    <button type="button" onClick={() => removeIng(i)} className="text-warm/40 hover:text-terra px-2">×</button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="number" value={ing.amount} onChange={(e) => setIng(i, "amount", e.target.value)} className="w-20 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm num" />
+                    <select value={ing.unit} onChange={(e) => setIng(i, "unit", e.target.value)} className="flex-1 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                      {["g","kg","ml","l","tsp","tbsp","cup","oz","lb","whole","cloves","sprigs","bunches"].map((u) => <option key={u}>{u}</option>)}
+                    </select>
+                    <select value={ing.category} onChange={(e) => setIng(i, "category", e.target.value)} className="flex-1 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                      {["produce","meat","dairy","pantry","bakery","frozen","other"].map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <select value={ing.source} onChange={(e) => setIng(i, "source", e.target.value)} className="flex-1 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                      <option value="wet-market">Wet mkt</option>
+                      <option value="supermarket">Supermarket</option>
+                      <option value="hktvmall">HKTVmall</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <select value={ing.scales} onChange={(e) => setIng(i, "scales", e.target.value)} className="flex-1 rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                      <option value="linear">Linear</option>
+                      <option value="fixed">Fixed</option>
+                      <option value="taper">Taper</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop grid */}
+            <div className="hidden sm:block space-y-2">
+              {/* header row */}
+              <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-2 text-xs text-warm uppercase tracking-wide px-1">
+                <span>Item</span><span>Amount</span><span>Unit</span><span>Category</span><span>Shop</span><span>Scales</span><span></span>
+              </div>
+              {(form.ingredients || []).map((ing, i) => (
+                <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-1.5 items-center">
+                  <input value={ing.item} onChange={(e) => setIng(i, "item", e.target.value)}
+                    placeholder="e.g. chicken thigh" className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm" />
+                  <input type="number" value={ing.amount} onChange={(e) => setIng(i, "amount", e.target.value)}
+                    className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm num" />
+                  <select value={ing.unit} onChange={(e) => setIng(i, "unit", e.target.value)}
+                    className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                    {["g","kg","ml","l","tsp","tbsp","cup","oz","lb","whole","cloves","sprigs","bunches"].map((u) => <option key={u}>{u}</option>)}
+                  </select>
+                  <select value={ing.category} onChange={(e) => setIng(i, "category", e.target.value)}
+                    className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                    {["produce","meat","dairy","pantry","bakery","frozen","other"].map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                  <select value={ing.source} onChange={(e) => setIng(i, "source", e.target.value)}
+                    className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                    <option value="wet-market">Wet mkt</option>
+                    <option value="supermarket">Supermarket</option>
+                    <option value="hktvmall">HKTVmall</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select value={ing.scales} onChange={(e) => setIng(i, "scales", e.target.value)}
+                    className="rounded-lg border border-warm/20 bg-white px-2 py-1.5 text-sm">
+                    <option value="linear">Linear</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="taper">Taper</option>
+                  </select>
+                  <button type="button" onClick={() => removeIng(i)} className="text-warm/40 hover:text-terra px-1">×</button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Steps */}
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-display text-lg">Steps</h4>
+              <button type="button" onClick={addStep}
+                className="text-sm bg-sand text-ink px-3 py-1 rounded-lg">+ Add</button>
+            </div>
+            <div className="space-y-3">
+              {(form.steps || []).map((s, i) => (
+                <div key={i} className="flex gap-3">
+                  <span className="font-display text-terra text-xl mt-2 min-w-[1.5rem]">{s.step}</span>
+                  <div className="flex-1 space-y-1">
+                    <textarea rows={2} value={s.instruction}
+                      onChange={(e) => setStep(i, "instruction", e.target.value)}
+                      placeholder="Instruction (English)…"
+                      className="w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm resize-y" />
+                    {showTrans && (<>
+                      <textarea rows={1} value={s.instruction_tl || ""}
+                        onChange={(e) => setStep(i, "instruction_tl", e.target.value)}
+                        placeholder="Tagalog…"
+                        className="w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm resize-y" />
+                      <textarea rows={1} value={s.instruction_il || ""}
+                        onChange={(e) => setStep(i, "instruction_il", e.target.value)}
+                        placeholder="Ilocano…"
+                        className="w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm resize-y" />
+                    </>)}
+                  </div>
+                  <button type="button" onClick={() => removeStep(i)}
+                    className="text-warm/40 hover:text-terra mt-2">×</button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Actions */}
+          {err && <p className="text-sm text-terra">{err}</p>}
+          <div className="flex gap-2 flex-wrap pt-2 border-t border-warm/10">
+            <button type="button" onClick={save} disabled={busy || !form.name.trim()}
+              className="bg-terra text-cream px-5 py-2 rounded-lg text-sm disabled:opacity-50">
+              {busy ? "Saving…" : isNew ? "Create recipe" : "Save changes"}
+            </button>
+            <button type="button" onClick={onCancel}
+              className="bg-sand text-ink px-4 py-2 rounded-lg text-sm">Cancel</button>
+            {!isNew && !confirmDel && (
+              <button type="button" onClick={() => setConfirmDel(true)}
+                className="ml-auto text-sm text-warm/60 hover:text-terra">Delete recipe</button>
+            )}
+            {!isNew && confirmDel && (
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-sm text-terra">Delete {form.name}?</span>
+                <button type="button" onClick={del} disabled={busy}
+                  className="bg-terra text-cream px-3 py-1.5 rounded-lg text-sm">Yes, delete</button>
+                <button type="button" onClick={() => setConfirmDel(false)}
+                  className="bg-sand text-ink px-3 py-1.5 rounded-lg text-sm">Cancel</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function SettingsPanel({ onClose }) {
+      const [base, setBase] = useState(localStorage.getItem("mpApiBase") || "");
+      const [tok, setTok] = useState(localStorage.getItem("mpFaithToken") || "");
+      const [status, setStatus] = useState("");
+      async function test() {
+        if (base) MP.api.setBase(base);
+        try {
+          const r = await MP.api.health();
+          setStatus("OK: " + JSON.stringify(r));
+        } catch (e) { setStatus("FAIL: " + e.message); }
+      }
+      return (
+        <div>
+          <label className="block text-sm text-warm">Worker URL</label>
+          <input value={base} onChange={(e) => setBase(e.target.value)}
+            placeholder="https://meal-planner-api.<you>.workers.dev"
+            className="mt-1 w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+          <label className="block text-sm text-warm mt-4">Faith token</label>
+          <input value={tok} onChange={(e) => setTok(e.target.value)} type="password"
+            className="mt-1 w-full rounded-lg border border-warm/20 bg-white px-3 py-2 text-sm" />
+          <div className="mt-4 flex gap-2">
+            <button onClick={() => { MP.api.setBase(base); MP.api.setToken(tok); onClose(); location.reload(); }}
+              className="bg-ink text-cream px-4 py-2 rounded-lg">Save</button>
+            <button onClick={test} className="bg-sand text-ink px-4 py-2 rounded-lg">Test</button>
+          </div>
+          {status && <div className="mt-3 text-sm text-warm">{status}</div>}
+        </div>
+      );
+    }
+
+    function useNow() {
+      const [now, setNow] = useState(() => MP.date.hkNowMin());
+      useEffect(() => {
+        const id = setInterval(() => setNow(MP.date.hkNowMin()), 30 * 1000);
+        return () => clearInterval(id);
+      }, []);
+      return now;
+    }
+
+    function TodayTimeline({ day, nextDay, recipesById, nowMin }) {
+      const tasks = MP.schedule.buildDayTasks(day, nextDay, recipesById);
+
+      // Group by timestamp
+      const groups = [];
+      for (const tk of tasks) {
+        const last = groups[groups.length - 1];
+        if (last && last.at === tk.at) last.items.push(tk);
+        else groups.push({ at: tk.at, items: [tk] });
+      }
+
+      const upNextGroup = groups.find((g) => g.at > nowMin);
+      const upNextLabel = upNextGroup
+        ? `Next: ${MP.schedule.fmtTime(upNextGroup.at)} — ${upNextGroup.items.map((t) => t.label).join(", ")}`
+        : tasks.length ? "All done for today" : "Nothing planned";
+
+      const [open, setOpen] = useState(false);
+
+      const kindIcon = { defrost: "❄️", marinate: "🧂", cook: "🔥", serve: "🍽️" };
+      const kindClass = { defrost: "text-sky-700", marinate: "text-amber-700", cook: "text-terra", serve: "text-sage" };
+      const upNextGroupIdx = groups.findIndex((g) => g.at > nowMin);
+
+      return (
+        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden mb-4 md:mb-6">
+          {/* Toggle header */}
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-5 py-3.5 text-left"
+          >
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-widest text-warm/60 mb-0.5">⏱ Today's cooking & meal schedule</div>
+              <div className={`text-sm font-medium ${upNextGroup ? "text-terra" : "text-warm"}`}>{upNextLabel}</div>
+            </div>
+            <span className="text-warm/40 text-xl transition-transform shrink-0 ml-3"
+              style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+          </button>
+
+          {/* Collapsible body */}
+          {open && (
+            <div className="border-t border-sand px-5 pb-5 pt-4">
+              {groups.length === 0 ? (
+                <p className="text-sm text-warm">Nothing planned for today yet.</p>
+              ) : (
+                <ol className="space-y-0">
+                  {groups.map((group, gi) => {
+                    const allPast = group.at <= nowMin;
+                    const isUpNext = gi === upNextGroupIdx;
+                    return (
+                      <li key={gi} className={`flex gap-4 ${allPast ? "opacity-40" : ""}`}>
+                        <div className="flex flex-col items-end">
+                          <div className={`num text-sm font-semibold min-w-[3.5rem] text-right pt-0.5 ${isUpNext ? "text-terra" : "text-warm"}`}>
+                            {MP.schedule.fmtTime(group.at)}
+                          </div>
+                          {gi < groups.length - 1 && (
+                            <div className="w-px flex-1 bg-sand mt-1.5" style={{ minHeight: "1.25rem" }} />
+                          )}
+                        </div>
+                        <div className={`flex-1 pb-3 ${isUpNext ? "rounded-xl bg-terra/8 ring-1 ring-terra/30 px-3 py-2 -mx-1 mb-2" : ""}`}>
+                          {isUpNext && <div className="text-[10px] font-bold uppercase tracking-widest text-terra mb-1">Up next</div>}
+                          <ul className="space-y-1">
+                            {group.items.map((tk, ti) => (
+                              <li key={ti} className="flex items-start gap-2 text-sm">
+                                <span className={`${kindClass[tk.kind]} mt-0.5 shrink-0`}>{kindIcon[tk.kind]}</span>
+                                <span className={allPast ? "line-through text-warm" : ""}>{tk.label}</span>
+                                {tk.flagEarly && !allPast && <span className="text-[11px] text-terra ml-1 shrink-0">⚠ early</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+              <p className="text-xs text-warm mt-3 leading-relaxed">
+                Helper view:{" "}
+                <a href="https://flantzhk.github.io/meal-planner/helper.html" target="_blank" rel="noopener"
+                  className="underline">flantzhk.github.io/meal-planner/helper.html</a>
+              </p>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+
+    function MealCell({ day, meal, recipesById, isNow, onPickComponent, onPreviewComponent, onSetTime }) {
+      const mealObj = getMealObj(day, meal);
+      const componentRecipes = COMPONENTS.map((c) => mealObj[c] ? recipesById[mealObj[c]] : null);
+      const mealIsEmpty = componentRecipes.every((r) => !r);
+      // Only filled slots get an image panel — no empty placeholders
+      const imageSlots = ALL_COMPONENTS
+        .map((c) => ({ comp: c, recipe: mealObj[c] ? recipesById[mealObj[c]] : null }))
+        .filter((s) => s.recipe);
+      const serveTime = day[meal + "_time"] || MP.schedule.defaultMealTime(meal);
+      const hasOvernightDep = ALL_COMPONENTS.some((c) => {
+        const r = mealObj[c] ? recipesById[mealObj[c]] : null;
+        return r && MP.schedule.forMeal(meal, r, { mealTime: day[meal + "_time"] }).hasOvernightDep;
+      });
+      const mealEmoji = meal === "breakfast" ? "🍳" : meal === "lunch" ? "🥗" : "🍽️";
+
+      return (
+        <div className={`rounded-xl overflow-hidden ring-1 flex flex-col ${isNow ? "ring-2 ring-terra" : "ring-black/5"} bg-white`}>
+          {/* Images for every filled component */}
+          <div className="relative h-[80px] shrink-0 flex overflow-hidden">
+            {imageSlots.map(({ comp, recipe: r }, i) => {
+              const img = r ? MP.recipeImage(r) : null;
+              const pct = (100 / imageSlots.length).toFixed(4) + "%";
+              return (
+                <div key={comp} style={{ width: pct }} className="shrink-0 bg-sand/50 overflow-hidden relative">
+                  {img ? (
+                    <img src={img} alt="" className="w-full h-full object-cover"
+                      onLoad={(e) => {
+                        if (MP.isYoutubePlaceholder(e.target)) {
+                          const s = e.target.src;
+                          if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                          if (r.hero_image && s !== r.hero_image) { e.target.src = r.hero_image; return; }
+                          e.target.style.display = "none";
+                        }
+                      }}
+                      onError={(e) => {
+                        const s = e.target.src;
+                        if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                        if (r.hero_image && s !== r.hero_image) { e.target.src = r.hero_image; return; }
+                        e.target.style.display = "none";
+                      }} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <span className="text-xl opacity-20">{COMPONENT_ICONS[comp]}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {hasOvernightDep && (
+              <span className="absolute top-1.5 right-1.5 bg-amber-100/90 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full">🌙</span>
+            )}
+          </div>
+
+          {/* Serve time bar */}
+          <div className="flex items-center justify-center gap-1.5 py-1 border-b border-sand/60 bg-cream/60">
+            <span className="text-[10px] pointer-events-none">🍽️</span>
+            <input type="time" value={serveTime}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => { e.stopPropagation(); onSetTime && onSetTime(e.target.value); }}
+              className="text-xs font-semibold text-ink bg-transparent border-none outline-none cursor-pointer" />
+          </div>
+
+          {/* Component rows */}
+          <div className="flex flex-col gap-0.5 p-1.5">
+            {COMPONENTS.map((comp) => {
+              const r = mealObj[comp] ? recipesById[mealObj[comp]] : null;
+              return (
+                <button key={comp}
+                  onClick={() => r ? onPreviewComponent(comp, r) : onPickComponent(comp)}
+                  className={`w-full flex items-center gap-1.5 text-left px-1.5 py-0.5 rounded-lg transition hover:bg-cream text-xs min-h-[26px] ${r ? "text-ink" : "text-warm/40"}`}>
+                  <span className="shrink-0 leading-none">{COMPONENT_ICONS[comp]}</span>
+                  {r ? (
+                    <span className="truncate leading-tight font-medium">{r.name}</span>
+                  ) : (
+                    <span className="italic text-warm/50">{COMPONENT_LABELS[comp]}</span>
+                  )}
+                </button>
+              );
+            })}
+
+            {/* Optional: soup / salad — full rows when filled, small pills when empty */}
+            {OPT_COMPONENTS.map((comp) => {
+              const r = mealObj[comp] ? recipesById[mealObj[comp]] : null;
+              return r ? (
+                <button key={comp} onClick={() => onPreviewComponent(comp, r)}
+                  className="w-full flex items-center gap-1.5 text-left px-1.5 py-0.5 rounded-lg transition hover:bg-cream text-xs min-h-[26px] text-ink">
+                  <span className="shrink-0 leading-none">{COMPONENT_ICONS[comp]}</span>
+                  <span className="truncate leading-tight font-medium">{r.name}</span>
+                </button>
+              ) : null;
+            })}
+            {OPT_COMPONENTS.some((comp) => !mealObj[comp]) && (
+              <div className="flex items-center gap-1 pt-0.5">
+                {OPT_COMPONENTS.filter((comp) => !mealObj[comp]).map((comp) => (
+                  <button key={comp} onClick={() => onPickComponent(comp)}
+                    className="text-[10px] text-warm/35 hover:text-warm px-1.5 py-0.5 rounded-full ring-1 ring-dashed ring-warm/20 transition">
+                    +{comp}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function MissedPrepAlert({ todayDay, recipesById, nowMin, onSwitch }) {
+      const THRESHOLD = 9 * 60;
+      if (!todayDay || nowMin < THRESHOLD) return null;
+      const seen = new Set();
+      const alerts = MEALS.flatMap((meal) =>
+        getMealRecipeIds(todayDay, meal).map((id) => {
+          const r = recipesById[id]; if (!r) return null;
+          const sched = MP.schedule.forMeal(meal, r, { mealTime: todayDay[meal + "_time"] });
+          if (!sched.hasOvernightDep || seen.has(meal)) return null;
+          seen.add(meal);
+          return { meal, recipe: r };
+        })
+      ).filter(Boolean);
+      if (alerts.length === 0) return null;
+      return (
+        <div className="mb-4 space-y-2">
+          {alerts.map(({ meal, recipe }) => (
+            <div key={meal} className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <div>
+                <span className="text-amber-800 font-semibold text-sm">🌙 {recipe.name}</span>
+                <span className="text-amber-700 text-sm"> needs overnight prep — has it been done?</span>
+              </div>
+              <button onClick={() => onSwitch(meal)}
+                className="shrink-0 bg-amber-700 text-white text-sm px-3 py-1.5 rounded-lg">
+                Switch meal
+              </button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function App() {
+      const [recipes, setRecipes] = useState(null);
+      const [plan, setPlan] = useState(null);
+      const [eatenLog, setEatenLog] = useState({});
+      const [pantry, setPantry] = useState({});
+      const [sources, setSources] = useState({});
+      const [extras, setExtras] = useState([]);
+      const [err, setErr] = useState(null);
+      const [picker, setPicker] = useState(null); // { dayIdx, meal }
+      const [preview, setPreview] = useState(null); // { dayIdx, meal, recipe }
+      const [showShop, setShowShop] = useState(false);
+      const [showLibrary, setShowLibrary] = useState(false);
+      const [editRecipe, setEditRecipe] = useState(null); // null=closed, false=new, recipe=edit
+      const [showSettings, setShowSettings] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const [flash, setFlashMsg] = useState("");
+      // Change 2: unsaved changes indicator
+      const [isDirty, setIsDirty] = useState(false);
+
+      // All hooks MUST be above the early returns so React's hook count stays
+      // consistent between loading and loaded renders.
+      const nowMin = useNow();
+
+      const lang = "en"; // planner stays English; language is for helper view.
+
+      useEffect(() => {
+        (async () => {
+          try {
+            const [rs, wp, el, pa, sr, ex] = await Promise.all([
+              MP.api.getRecipes(), MP.api.getWeekplan(), MP.api.getEatenLog(), MP.api.getPantry(),
+              MP.api.getSources().catch(() => ({})),
+              MP.api.getExtras().catch(() => ([])),
+            ]);
+            setRecipes(rs);
+            setEatenLog(el || {});
+            setPantry(pa || {});
+            setSources(sr || {});
+            setExtras(ex || []);
+            if (wp) setPlan(wp);
+            else setPlan(makeEmptyPlan());
+          } catch (e) { setErr(e.message); }
+        })();
+      }, []);
+
+      async function togglePantryItem(item, have) {
+        setPantry((p) => {
+          const next = { ...p };
+          if (have) next[item] = new Date().toISOString().slice(0, 10);
+          else delete next[item];
+          return next;
+        });
+        try { await MP.api.togglePantry(item, have); }
+        catch (e) { setFlashMsg("Pantry save failed: " + e.message); }
+      }
+
+      async function addExtra(item, source) {
+        if (!item || !item.trim()) return;
+        try {
+          const list = await MP.api.addExtra(item.trim(), source || "supermarket");
+          setExtras(list);
+        } catch (e) { setFlashMsg("Add extra failed: " + e.message); }
+      }
+      async function toggleExtra(id, done) {
+        setExtras((xs) => xs.map((x) => x.id === id ? { ...x, done } : x));
+        try { await MP.api.updateExtra(id, { done }); }
+        catch (e) { setFlashMsg("Update extra failed: " + e.message); }
+      }
+      async function removeExtra(id) {
+        setExtras((xs) => xs.filter((x) => x.id !== id));
+        try { await MP.api.removeExtra(id); }
+        catch (e) { setFlashMsg("Remove extra failed: " + e.message); }
+      }
+
+      function handleRecipeSaved(saved) {
+        setRecipes((rs) => {
+          const idx = rs.findIndex((r) => r.id === saved.id);
+          return idx >= 0 ? rs.map((r) => r.id === saved.id ? saved : r) : [...rs, saved];
+        });
+        setEditRecipe(null);
+        setFlashMsg(`✓ "${saved.name}" saved.`);
+      }
+
+      function handleRecipeDeleted(id) {
+        setRecipes((rs) => rs.filter((r) => r.id !== id));
+        setEditRecipe(null);
+        setPreview(null);
+        setFlashMsg("Recipe deleted.");
+      }
+
+      async function setIngredientSource(item, source) {
+        const k = (item || "").toLowerCase().trim();
+        setSources((s) => {
+          const next = { ...s };
+          if (source) next[k] = source;
+          else delete next[k];
+          return next;
+        });
+        try { await MP.api.setSource(item, source); }
+        catch (e) { setFlashMsg("Source save failed: " + e.message); }
+      }
+
+      function makeEmptyPlan() {
+        const ws = MP.date.mondayOf(MP.date.hkToday());
+        const names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+        return {
+          week_start: ws, shopping_day: "Monday", serves: 4, language: "en",
+          days: names.map((n, i) => ({ day: n, date: MP.date.addDays(ws, i), breakfast: null, lunch: null, dinner: null })),
+        };
+      }
+
+      const recipesById = useMemo(() => {
+        const m = {}; (recipes || []).forEach((r) => m[r.id] = r); return m;
+      }, [recipes]);
+
+      const usedIds = useMemo(() => {
+        if (!plan) return [];
+        return plan.days.flatMap((d) => MEALS.flatMap((m) => getMealRecipeIds(d, m)));
+      }, [plan]);
+
+      function setSlot(dayIdx, meal, component, id) {
+        setPlan((p) => {
+          const days = p.days.map((d, i) => {
+            if (i !== dayIdx) return d;
+            const current = getMealObj(d, meal);
+            const updated = { ...current, [component]: id || null };
+            const allEmpty = ALL_COMPONENTS.every((c) => !updated[c]);
+            const next = { ...d, [meal]: allEmpty ? null : updated };
+            if (allEmpty) { delete next[meal + "_time"]; delete next[meal + "_serves"]; }
+            return next;
+          });
+          return { ...p, days };
+        });
+        setIsDirty(true);
+      }
+      // Change 2: setSlotMeta marks dirty
+      function setSlotMeta(dayIdx, meal, { time, serves }) {
+        setPlan((p) => {
+          const days = p.days.map((d, i) => {
+            if (i !== dayIdx) return d;
+            const next = { ...d };
+            if (time && time !== MP.schedule.defaultMealTime(meal)) next[meal + "_time"] = time;
+            else delete next[meal + "_time"];
+            if (serves && serves !== (p.serves || 4)) next[meal + "_serves"] = serves;
+            else delete next[meal + "_serves"];
+            return next;
+          });
+          return { ...p, days };
+        });
+        setIsDirty(true);
+      }
+
+      async function shiftWeek(delta) {
+        const newStart = MP.date.addDays(plan.week_start, delta * 7);
+        // Try to load a previously-saved plan for that week; fall back to empty scaffold.
+        let stored = null;
+        try { stored = await MP.api.getWeekplanFor(newStart); } catch (e) { /* offline */ }
+        if (stored && stored.week_start === newStart) {
+          setPlan(stored);
+          setIsDirty(false); // loaded from server — not dirty
+          return;
+        }
+        const names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+        setPlan((p) => ({
+          ...p,
+          week_start: newStart,
+          days: names.map((n, i) => ({
+            day: n, date: MP.date.addDays(newStart, i),
+            breakfast: null, lunch: null, dinner: null,
+          })),
+        }));
+        setIsDirty(false); // fresh empty scaffold — not dirty
+      }
+
+      async function savePlan() {
+        if (!MP.api.hasToken()) {
+          setShowSettings(true);
+          setFlashMsg("Paste your Faith token in Settings first.");
+          return;
+        }
+        setSaving(true);
+        try {
+          await MP.api.putWeekplan(plan);
+          const el = await MP.api.getEatenLog();
+          setEatenLog(el || {});
+          setFlashMsg("✓ Week saved. Helper will see it.");
+          setIsDirty(false); // Change 2: clear dirty on successful save
+        } catch (e) {
+          setFlashMsg("Save failed: " + e.message);
+        } finally { setSaving(false); }
+      }
+
+      // Change 6: copyLastWeek function
+      async function copyLastWeek() {
+        const prevStart = MP.date.addDays(plan.week_start, -7);
+        let prev = null;
+        try { prev = await MP.api.getWeekplanFor(prevStart); } catch(e) {}
+        if (!prev || !prev.days) { setFlashMsg("No saved plan for last week."); return; }
+        // Copy just the meal assignments (not times/serves overrides) into current week
+        setPlan((p) => ({
+          ...p,
+          days: p.days.map((d, i) => {
+            const src = prev.days[i];
+            if (!src) return d;
+            return { ...d, breakfast: src.breakfast, lunch: src.lunch, dinner: src.dinner };
+          }),
+        }));
+        setIsDirty(true);
+        setFlashMsg("Meals copied from last week — review and save.");
+      }
+
+      if (err) {
+        return (
+          <div className="max-w-xl mx-auto p-6">
+            <h1 className="font-display text-3xl">Lantz Meal Planner</h1>
+            <p className="text-terra mt-4">Could not load: {err}</p>
+            <button onClick={() => setShowSettings(true)} className="mt-3 bg-ink text-cream px-4 py-2 rounded-lg">Open Settings</button>
+            <Modal open={showSettings} onClose={() => setShowSettings(false)} title="Settings">
+              <SettingsPanel onClose={() => setShowSettings(false)} />
+            </Modal>
+          </div>
+        );
+      }
+      if (!recipes || !plan) return <div className="p-6 text-warm">Loading…</div>;
+
+      const today = MP.date.hkToday();
+      const clockStr = MP.date.hkNowClock("en");
+      const currentMeal = MP.date.currentMeal();
+      const todayDay = plan.days.find((d) => d.date === today);
+      const tomorrowDay = todayDay ? plan.days.find((d) => d.date === MP.date.addDays(today, 1)) : null;
+      const todayMealObj = todayDay ? getMealObj(todayDay, currentMeal) : null;
+      const todayRecipe = todayMealObj
+        ? recipesById[todayMealObj.protein] || recipesById[todayMealObj.vegetable] || recipesById[todayMealObj.carb] || null
+        : null;
+      const todayComponentCount = todayMealObj ? ALL_COMPONENTS.filter((c) => todayMealObj[c]).length : 0;
+      const todayRecipeSched = todayRecipe ? MP.schedule.forMeal(currentMeal, todayRecipe, { mealTime: todayDay && todayDay[currentMeal + "_time"] }) : null;
+
+      return (
+        <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-4 md:pt-6 pb-16">
+          <header className="flex items-start justify-between gap-3 flex-wrap mb-4 md:mb-6">
+            <div>
+              <h1 className="font-display text-2xl md:text-3xl">Lantz Meal Planner</h1>
+              <div className="text-warm text-sm">
+                Week of <span className="num">{plan.week_start}</span>
+                <button onClick={() => shiftWeek(-1)} className="ml-3 text-terra">◀ prev</button>
+                <button onClick={() => shiftWeek(1)} className="ml-2 text-terra">next ▶</button>
+                {/* Change 6: copy last week button */}
+                <button onClick={copyLastWeek} className="text-xs text-warm underline ml-2">copy last week</button>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-sm text-warm">Serves
+                <select value={plan.serves || 4} onChange={(e) => setPlan((p) => ({...p, serves: Number(e.target.value)}))}
+                  className="ml-1 rounded-lg border border-warm/20 bg-white px-2 py-1">
+                  {[2,3,4,5,6].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <a href="helper.html" target="_blank" rel="noopener"
+                className="bg-sand text-ink px-3 py-2 rounded-lg text-sm">👁 <span className="hidden sm:inline">Helper view</span></a>
+              <button onClick={() => setShowLibrary(true)} className="bg-sand text-ink px-3 py-2 rounded-lg text-sm">📖 <span className="hidden sm:inline">Recipes</span></button>
+              <button onClick={() => setShowShop(true)} className="bg-sand text-ink px-3 py-2 rounded-lg text-sm">🛒 <span className="hidden sm:inline">Shopping list</span></button>
+              {/* Change 2: dynamic Save button */}
+              <button onClick={savePlan} disabled={saving}
+                className={`px-3 py-2 rounded-lg text-sm disabled:opacity-60 transition ${isDirty ? 'bg-terra text-cream ring-2 ring-terra/50' : 'bg-sand text-warm'}`}>
+                {saving ? "Saving…" : isDirty ? "● Save" : "Saved ✓"}
+              </button>
+              <button onClick={() => setShowSettings(true)} className="bg-ink/80 text-cream px-3 py-2 rounded-lg text-sm">⚙︎</button>
+            </div>
+          </header>
+
+          {flash && <div className="mb-4 text-sm text-terra">{flash}</div>}
+
+          <MissedPrepAlert
+            todayDay={todayDay} recipesById={recipesById} nowMin={nowMin}
+            onSwitch={(meal) => {
+              const dayIdx = plan.days.findIndex((d) => d.date === today);
+              setFlashMsg("Didn't get time to prep — switched the meal.");
+              setPicker({ dayIdx, meal, component: "protein" });
+            }}
+          />
+
+          {todayDay && <TodayTimeline day={todayDay} nextDay={tomorrowDay} recipesById={recipesById} nowMin={nowMin} />}
+
+          {/* Mobile: vertical per-day card list */}
+          <div className="md:hidden space-y-3">
+            {plan.days.map((d, dayIdx) => {
+              const isToday = d.date === today;
+              return (
+                <div key={d.date} className={`rounded-2xl p-3 ring-1 ${isToday ? "bg-white ring-terra/40" : "bg-white ring-black/5"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-display text-lg leading-none ${isToday ? "text-terra" : ""}`}>{d.day}</span>
+                      {isToday && <span className="text-[9px] font-bold uppercase tracking-widest bg-terra text-white px-1.5 py-0.5 rounded-full leading-none">Today</span>}
+                    </div>
+                    <div className="text-[11px] text-warm/50 num">{d.date}</div>
+                  </div>
+                  <div className="space-y-2">
+                    {MEALS.map((meal) => {
+                      const mealObj = getMealObj(d, meal);
+                      const isNow = isToday && meal === currentMeal;
+                      const hasAny = COMPONENTS.some((c) => mealObj[c]);
+                      return (
+                        <div key={meal} className={`rounded-xl ring-1 overflow-hidden ${isNow ? "ring-2 ring-terra" : "ring-black/5"} bg-white`}>
+                          <div className={`text-xs uppercase tracking-wide px-2.5 pt-2 pb-1 ${isNow ? "text-terra font-semibold" : "text-warm"}`}>{meal}</div>
+                          <div className="px-2 pb-2 space-y-0.5">
+                            {COMPONENTS.map((comp) => {
+                              const r = mealObj[comp] ? recipesById[mealObj[comp]] : null;
+                              return (
+                                <button key={comp} onClick={() => r
+                                  ? setPreview({ dayIdx, meal, component: comp, recipe: r })
+                                  : setPicker({ dayIdx, meal, component: comp })}
+                                  className={`w-full flex items-center gap-1.5 text-left px-1.5 py-1 rounded-lg text-xs transition hover:bg-cream ${r ? "text-ink" : "text-warm/40"}`}>
+                                  <span>{COMPONENT_ICONS[comp]}</span>
+                                  {r ? <span className="truncate font-medium">{r.name}</span>
+                                     : <span className="italic">Add {COMPONENT_LABELS[comp].toLowerCase()}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop: week grid */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full table-fixed border-separate border-spacing-3">
+              <thead>
+                <tr>
+                  <th className="w-24"></th>
+                  {plan.days.map((d) => {
+                    const isToday = d.date === today;
+                    return (
+                      <th key={d.date} className={`w-[calc((100%-6rem)/7)] text-left font-normal px-2 ${isToday ? "border-t-2 border-terra pt-1" : "pt-1"}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`font-display text-lg leading-none ${isToday ? "text-terra" : ""}`}>{d.day}</span>
+                          {isToday && <span className="text-[9px] font-bold uppercase tracking-widest bg-terra text-white px-1.5 py-0.5 rounded-full leading-none">Today</span>}
+                        </div>
+                        <div className="text-[11px] text-warm/50 num mt-0.5">{d.date}</div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {MEALS.map((meal) => (
+                  <tr key={meal} className="align-top">
+                    <td className={`text-sm uppercase tracking-wide pt-3 pr-2 ${meal === currentMeal ? "text-terra font-semibold" : "text-warm"}`}>
+                      {meal}{meal === currentMeal && " ●"}
+                    </td>
+                    {plan.days.map((d, dayIdx) => {
+                      const isToday = d.date === today;
+                      const isNow = isToday && meal === currentMeal;
+                      return (
+                        <td key={d.date} className={`${isToday ? "bg-terra/5" : ""} align-top`}>
+                          <MealCell
+                            day={d} meal={meal} recipesById={recipesById} isNow={isNow}
+                            onPickComponent={(comp) => setPicker({ dayIdx, meal, component: comp })}
+                            onPreviewComponent={(comp, recipe) => setPreview({ dayIdx, meal, component: comp, recipe })}
+                            onSetTime={(time) => setSlotMeta(dayIdx, meal, { time, serves: d[meal + "_serves"] })}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+
+          <Modal open={!!picker} onClose={() => setPicker(null)}
+            title={picker ? `${plan.days[picker.dayIdx].day} — ${picker.meal}` : ""}>
+            {picker && (
+              <RecipePicker
+                mealType={picker.meal} componentType={picker.component}
+                recipes={recipes} eatenLog={eatenLog}
+                usedIds={usedIds} lang={lang}
+                onPick={(id) => { setSlot(picker.dayIdx, picker.meal, picker.component, id); setPicker(null); }}
+              />
+            )}
+          </Modal>
+
+          <Modal open={showShop} onClose={() => setShowShop(false)} title="Shopping list">
+            <ShoppingList recipes={recipes} plan={plan} lang={lang}
+              pantry={pantry} onToggle={togglePantryItem}
+              sources={sources} onSetSource={setIngredientSource}
+              extras={extras} onAddExtra={addExtra}
+              onToggleExtra={toggleExtra} onRemoveExtra={removeExtra} />
+          </Modal>
+
+          <Modal open={!!preview} onClose={() => setPreview(null)}
+            title={preview ? `${plan.days[preview.dayIdx].day} — ${preview.meal}` : ""}>
+            {preview && (
+              <RecipePreview
+                recipe={preview.recipe} meal={preview.meal}
+                pantry={pantry} onTogglePantry={togglePantryItem}
+                sources={sources} onSetSource={setIngredientSource}
+                mealTime={plan.days[preview.dayIdx][preview.meal + "_time"]}
+                mealServes={plan.days[preview.dayIdx][preview.meal + "_serves"]}
+                planServes={plan.serves || 4}
+                onUpdate={({ time, serves }) => setSlotMeta(preview.dayIdx, preview.meal, { time, serves })}
+                onChange={() => { const p = preview; setPreview(null); setPicker({ dayIdx: p.dayIdx, meal: p.meal, component: p.component || "protein" }); }}
+                onRemove={() => { const p = preview; setPreview(null); setSlot(p.dayIdx, p.meal, p.component || "protein", null); }}
+                onEdit={() => { setEditRecipe(preview.recipe); setPreview(null); }}
+              />
+            )}
+          </Modal>
+
+          <Modal open={showLibrary} onClose={() => setShowLibrary(false)} title="Recipe library">
+            <RecipeLibrary recipes={recipes} eatenLog={eatenLog} lang={lang}
+              onOpen={(r) => { setShowLibrary(false); setPreview({ dayIdx: 0, meal: (r.meal_type||["dinner"])[0], recipe: r }); }}
+              onNew={(r) => { setShowLibrary(false); setEditRecipe(r || false); }} />
+          </Modal>
+
+          <Modal open={editRecipe !== null} onClose={() => setEditRecipe(null)}
+            title={editRecipe ? `Edit — ${editRecipe.name}` : "New recipe"}>
+            {editRecipe !== null && (
+              <RecipeForm
+                recipe={editRecipe || null}
+                onSave={handleRecipeSaved}
+                onDelete={() => handleRecipeDeleted(editRecipe.id)}
+                onCancel={() => setEditRecipe(null)}
+              />
+            )}
+          </Modal>
+
+          <Modal open={showSettings} onClose={() => setShowSettings(false)} title="Settings">
+            <SettingsPanel onClose={() => setShowSettings(false)} />
+          </Modal>
+
+          <footer className="text-center text-[11px] text-warm/40 py-6 select-none">{APP_VERSION}</footer>
+        </main>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

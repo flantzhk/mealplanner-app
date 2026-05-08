@@ -1,0 +1,17 @@
+name = "meal-planner-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# KV namespace for all meal-planner data.
+# Create it with:
+#   wrangler kv namespace create MEAL_DATA
+# Then paste the returned id below.
+[[kv_namespaces]]
+binding = "MEAL_DATA"
+id = "aa6ade0ba0094da4acb1e03123e09ea1"
+
+# Secrets (set via `wrangler secret put`):
+# - FAITH_TOKEN   — long random string Faith pastes into the planner Settings panel
+
+[vars]
+ALLOWED_ORIGIN = "*"

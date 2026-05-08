@@ -1,0 +1,1266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#F4F1EC" />
+  <title>Today's meals</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23F4F1EC'/%3E%3Cpolygon points='24,16 24,48 50,32' fill='%23C8392B'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            cream: "#F4F1EC", sand: "#EAE3D9", ink: "#1A1A1A",
+            terra: "#C8392B", sage: "#6B6B6B", warm: "#6B6B6B",
+            bg0: "#FAFAF7", border: "#E4DDD5",
+          },
+          fontFamily: {
+            display: ["Source Serif 4", "Georgia", "serif"],
+            body: ["Inter", "system-ui", "sans-serif"],
+            mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    html, body { background: #F4F1EC; color: #1A1A1A; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    h1, h2, h3, h4 { font-family: "Source Serif 4", Georgia, serif; font-weight: 400; letter-spacing: -0.005em; }
+    .step-num { font-variant-numeric: tabular-nums; }
+    .num { font-variant-numeric: tabular-nums; }
+    /* No border-radius anywhere except small dot/circle UI (rounded-full) */
+    [class*="rounded-"]:not([class*="rounded-full"]) { border-radius: 0 !important; }
+  </style>
+  <script src="shared.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useEffect, useState, useMemo } = React;
+    const t = (lang, key) => MP.i18n.t(lang, key);
+    const COMPONENTS = ["protein", "vegetable", "carb"];
+    const OPT_COMPONENTS = ["starter", "soup", "salad"];
+    const ALL_COMPONENTS = [...COMPONENTS, ...OPT_COMPONENTS];
+    const COMPONENT_ICONS  = { protein: "🥩", vegetable: "🥦", carb: "🍚", starter: "🍽️", soup: "🍲", salad: "🥗" };
+    const COMPONENT_LABELS = { protein: "Protein", vegetable: "Vegetable", carb: "Carb", starter: "Starter", soup: "Soup", salad: "Salad" };
+
+    const HELPER_BUFFER = 20; // extra mins added to every start time for Leni
+
+    function ytId(url) {
+      if (!url) return null;
+      const m = url.match(/[?&]v=([^&]+)/) || url.match(/youtu\.be\/([^?]+)/);
+      return m ? m[1] : null;
+    }
+
+    function langStore() {
+      return localStorage.getItem("mpHelperLang") || "en";
+    }
+
+    function LangToggle({ lang, onChange }) {
+      return (
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-warm/50 text-center mb-1">Language</div>
+          <div className="inline-flex rounded-xl bg-sand p-1 gap-1 text-sm shadow-sm">
+            {MP.i18n.languages.map((l) => (
+              <button
+                key={l.code}
+                onClick={() => onChange(l.code)}
+                className={`px-4 py-2 rounded-lg font-semibold transition ${
+                  lang === l.code
+                    ? "bg-terra text-cream shadow"
+                    : "text-warm hover:text-ink"
+                }`}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // Change 2: NowBar — fixed slim bar always visible at top
+    function NowBar({ day, nextDay, recipesById, nowMin, lang }) {
+      const { h, m, s, ampm, blink, dateStr } = useClock();
+      let content = null;
+      let overdue = false;
+
+      if (day) {
+        const tasks = MP.schedule.buildDayTasks(day, nextDay, recipesById, { buffer: HELPER_BUFFER });
+        const upcoming = tasks.find((tk) => (tk.kind === "cook" || tk.kind === "serve") && tk.at > nowMin);
+        if (upcoming) {
+          const minsToStart = upcoming.at - nowMin;
+          overdue = minsToStart <= 0;
+          content = overdue
+            ? t(lang, "cookNow")
+            : minsToStart < 60
+              ? `in ${minsToStart} min`
+              : MP.schedule.fmtTime(upcoming.at);
+        } else {
+          content = "🌙 All done";
+        }
+      } else {
+        content = "🌙 All done";
+      }
+
+      return (
+        <div
+          className={`fixed top-0 left-0 right-0 z-20 flex items-center justify-between px-4 gap-2 ${
+            overdue ? "bg-terra text-cream" : "bg-ink text-cream"
+          }`}
+          style={{ height: "56px" }}>
+          {/* Left: live clock */}
+          <div className="shrink-0">
+            <div className="text-[9px] font-semibold uppercase tracking-wider opacity-50 leading-none mb-0.5">{dateStr}</div>
+            <div className="num font-display text-xl leading-none tracking-tight">
+              {h}<span style={{ opacity: blink ? 1 : 0.25 }}>:</span>{m}<span className="text-sm ml-1 opacity-70">{ampm}</span>
+            </div>
+          </div>
+          {/* Right: cooking action */}
+          <div className="text-right min-w-0">
+            <div className="text-[9px] font-semibold uppercase tracking-wider opacity-50 leading-tight mb-0.5 break-words">{t(lang, "startCookingNextMeal")}</div>
+            <div className={`text-sm font-semibold ${overdue ? "text-cream" : "text-cream/80"}`}>{content}</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Renders a single recipe's image, ingredients and steps
+    function RecipeCard({ recipe, componentType, lang, onVerify, noImage }) {
+      const [playing, setPlaying] = useState(false);
+      const name = MP.i18n.recipeName(recipe, lang);
+      const showEng = !recipe.translations_verified && lang !== "en";
+      const img = MP.recipeImage(recipe);
+      const vid = ytId(recipe.youtube_url);
+      const closeLabel = lang === "tl" ? "Isara ang video" : lang === "il" ? "Isarrek ti video" : "Close video";
+      return (
+        <article className="bg-white rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/5">
+          {/* Inline player — shown when playing (both noImage and full modes) */}
+          {playing && vid && (
+            <div style={{ aspectRatio: "16/9" }}>
+              <iframe
+                src={`https://www.youtube.com/embed/${vid}?autoplay=1&rel=0`}
+                className="w-full h-full"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+              />
+            </div>
+          )}
+          {/* Thumbnail — only in full (non-accordion) mode when not playing */}
+          {!playing && !noImage && img && (
+            <button onClick={() => vid && setPlaying(true)}
+              className={`block w-full relative group ${vid ? "cursor-pointer" : "cursor-default"}`}>
+              <img src={img} alt={name} className="w-full h-44 object-cover"
+                onLoad={(e) => {
+                  if (!MP.isYoutubePlaceholder(e.target)) return;
+                  const s = e.target.src;
+                  if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                  if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                  e.target.style.display = "none";
+                }}
+                onError={(e) => {
+                  const s = e.target.src;
+                  if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                  if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                  e.target.style.display = "none";
+                }} />
+              {vid && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition">
+                  <div className="bg-black/60 text-white rounded-full px-4 py-2 text-sm font-medium">▶ {t(lang, "watch")}</div>
+                </div>
+              )}
+            </button>
+          )}
+          <div className="p-5">
+            <div className="flex items-center gap-2 text-warm text-xs uppercase tracking-wide mb-1">
+              <span className="text-base">{COMPONENT_ICONS[componentType] || ""}</span>
+              <span>{COMPONENT_LABELS[componentType] || componentType}</span>
+            </div>
+            <h2 className="font-display text-2xl leading-tight">{name}</h2>
+            {showEng && <div className="text-sm text-warm/80 italic mt-0.5">{recipe.name}</div>}
+            {vid && !playing && (
+              <button onClick={() => setPlaying(true)}
+                className="mt-3 inline-flex items-center gap-2 bg-terra text-cream px-4 py-2 rounded-full text-sm font-medium">
+                ▶ {t(lang, "watch")}
+              </button>
+            )}
+            {playing && (
+              <button onClick={() => setPlaying(false)}
+                className="mt-3 inline-flex items-center gap-2 bg-warm text-cream px-4 py-2 rounded-full text-sm font-medium">
+                ✕ {closeLabel}
+              </button>
+            )}
+            <h3 className="mt-5 font-display text-lg">{t(lang, "ingredients")}</h3>
+            <ul className="mt-1 text-sm leading-relaxed">
+              {(recipe.ingredients || []).map((ing, i) => {
+                const amt = ing.amount != null ? Number(Number(ing.amount).toFixed(2)) : "";
+                return (
+                  <li key={i} className="flex gap-3 py-0.5">
+                    <span className="num text-warm min-w-[4.5rem]">{amt !== "" ? amt : ""} {ing.unit || ""}</span>
+                    <span>{ing.item || ""}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <h3 className="mt-5 font-display text-lg">{t(lang, "steps")}</h3>
+            <ol className="mt-1 space-y-3">
+              {(recipe.steps || []).map((s, i) => (
+                <li key={s.step ?? i} className="flex gap-3">
+                  <span className="step-num font-display text-terra text-lg leading-7 min-w-[1.5rem]">{s.step ?? i + 1}</span>
+                  <div className="leading-relaxed text-sm">
+                    <div>{MP.i18n.stepText(s, lang)}</div>
+                    {showEng && <div className="text-warm/70 italic text-sm mt-0.5">{s.instruction}</div>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {!recipe.translations_verified && lang !== "en" && (
+              <button onClick={() => onVerify(recipe.id)} className="mt-4 text-xs underline text-warm/80">
+                ✓ {t(lang, "verify")}
+              </button>
+            )}
+          </div>
+        </article>
+      );
+    }
+
+    // Accordion item: summary row that expands to show full RecipeCard
+    function ComponentAccordion({ comp, recipe, mealServes, lang, onVerify, defaultOpen }) {
+      const [open, setOpen] = useState(defaultOpen || false);
+      const name = MP.i18n.recipeName(recipe, lang);
+      const img = MP.recipeImage(recipe);
+      const scaled = {
+        ...recipe,
+        ingredients: (recipe.ingredients || []).map((i) => {
+          try { return MP.scale(i, mealServes, recipe.serves_base || 4); } catch(e) { return i; }
+        }),
+      };
+      return (
+        <div className={`rounded-2xl overflow-hidden ${open ? "ring-2 ring-terra/40" : "ring-1 ring-black/5"} bg-white`}>
+          <button onClick={() => setOpen((o) => !o)}
+            className="w-full text-left outline-none focus:outline-none">
+            {/* Image banner — full width, 96px tall */}
+            {img && (
+              <div className="relative w-full overflow-hidden" style={{ height: "96px" }}>
+                <img src={img} alt="" className="w-full h-full object-cover"
+                  onLoad={(e) => {
+                    if (!MP.isYoutubePlaceholder(e.target)) return;
+                    const s = e.target.src;
+                    if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                    if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                    e.target.style.display = "none";
+                  }}
+                  onError={(e) => {
+                    const s = e.target.src;
+                    if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                    if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                    e.target.style.display = "none";
+                  }} />
+              </div>
+            )}
+            <div className="flex items-center justify-between px-4 py-3 gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="font-display text-xl leading-snug">{name}</div>
+                <div className="text-sm text-warm/60 mt-0.5">{open ? t(lang, "tapToClose") : t(lang, "tapToCook")}</div>
+              </div>
+              <span className="text-warm/40 text-2xl shrink-0 leading-none" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>›</span>
+            </div>
+          </button>
+          {open && (
+            <div className="border-t border-sand/60">
+              <RecipeCard recipe={scaled} componentType={comp} lang={lang} onVerify={onVerify} noImage />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const SOURCE_LABEL = (lang) => ({ "wet-market": t(lang, "fromWetMarket"), "supermarket": t(lang, "fromSupermarket") });
+    const SOURCE_ORDER = ["wet-market", "supermarket"];
+
+    function MealShoppingList({ mealType, day, recipesById, planServes, lang, nowMin }) {
+      const [open, setOpen] = useState(false);
+      const [checked, setChecked] = useState({});
+      const mealServes = day[mealType + "_serves"] || planServes;
+      const ids = MP.getMealRecipeIds(day, mealType);
+
+      // Hide when meal time has already passed
+      if (nowMin != null) {
+        const serveMin = MP.schedule.parseHM(day[mealType + "_time"] || MP.schedule.defaultMealTime(mealType));
+        if (serveMin < nowMin) return null;
+      }
+
+      const groups = useMemo(() => {
+        const byKey = new Map();
+        for (const id of ids) {
+          const r = recipesById[id]; if (!r) continue;
+          for (const ing of r.ingredients || []) {
+            if (ing.category === "pantry") continue;
+            const scaled = MP.scale(ing, mealServes, r.serves_base || 4);
+            const { family, value } = MP.units.toCanonical(scaled.amount, scaled.unit);
+            const itemKey = MP.normalizeIngredientKey(ing.item);
+            const key = `${itemKey}|${ing.source}|${family}`;
+            const ex = byKey.get(key) || { item: itemKey, source: ing.source || "supermarket", category: ing.category, family, total: 0 };
+            ex.total += value;
+            byKey.set(key, ex);
+          }
+        }
+        const result = {};
+        for (const entry of byKey.values()) {
+          const src = entry.source || "supermarket";
+          if (!result[src]) result[src] = [];
+          const { amount, unit } = MP.units.fromCanonical(entry.family, entry.total);
+          const amtStr = amount % 1 === 0 ? String(amount) : amount.toFixed(1);
+          result[src].push({ item: entry.item, display: `${amtStr} ${unit}` });
+        }
+        return result;
+      }, [ids.join(","), mealServes]);
+
+      const totalItems = Object.values(groups).reduce((n, g) => n + g.length, 0);
+      if (totalItems === 0) return null;
+
+      const toggle = (key) => setChecked((c) => ({ ...c, [key]: !c[key] }));
+      const checkedCount = Object.values(checked).filter(Boolean).length;
+
+      return (
+        <div className="rounded-2xl overflow-hidden ring-1 ring-sand bg-sand/40">
+          <button onClick={() => setOpen((o) => !o)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left outline-none focus:outline-none">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <span className="text-2xl shrink-0">🛍️</span>
+              <div>
+                <div className="font-display text-lg text-ink">{t(lang, "shopping")}</div>
+                <div className="text-sm text-warm/70 mt-0.5">
+                  {checkedCount > 0 ? `${checkedCount} ${t(lang, "of")} ${totalItems} ${t(lang, "bought")}` : `${totalItems} ${lang === "tl" ? "na item" : `item${totalItems !== 1 ? "s" : ""}`}`}{t(lang, "tapToSee")}
+                </div>
+              </div>
+            </div>
+            <span className="text-warm/40 text-2xl shrink-0 ml-2 leading-none" style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>›</span>
+          </button>
+          {open && (
+            <div className="border-t border-sand divide-y divide-sand/60">
+              {SOURCE_ORDER.filter((s) => groups[s]?.length).map((src) => (
+                <div key={src} className="px-4 py-3">
+                  <div className="text-xs font-semibold text-warm/70 uppercase tracking-wide mb-2">{SOURCE_LABEL(lang)[src]}</div>
+                  <ul className="space-y-1.5">
+                    {[...groups[src]]
+                      .sort((a, b) => (checked[a.item] ? 1 : 0) - (checked[b.item] ? 1 : 0))
+                      .map((it) => {
+                        const isChecked = !!checked[it.item];
+                        return (
+                          <li key={it.item} className="flex items-center gap-3 text-sm">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggle(it.item); }}
+                              className={`shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition ${
+                                isChecked ? "bg-sage border-sage text-white" : "border-warm/30 bg-white"
+                              }`}>
+                              {isChecked && <span className="text-xs font-bold leading-none">✓</span>}
+                            </button>
+                            <span className={`flex-1 ${isChecked ? "line-through text-warm/40" : ""}`}>{it.item}</span>
+                            <span className={`num tabular-nums text-xs ${isChecked ? "text-warm/30" : "text-warm/70"}`}>{it.display}</span>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Renders a full meal: timing header + summary + accordion per component
+    function MealSection({ mealType, day, recipesById, planServes, lang, onVerify, nowMin }) {
+      const mealObj = MP.getMealObj(day, mealType);
+      const mealTime = day[mealType + "_time"];
+      const mealServes = day[mealType + "_serves"] || planServes;
+      const ids = MP.getMealRecipeIds(day, mealType);
+      if (!ids.length) return null;
+
+      const serveMin = MP.schedule.parseHM(mealTime || MP.schedule.defaultMealTime(mealType));
+      const servedAtLabel = MP.schedule.fmtTime(serveMin);
+      let earliestStart = Infinity;
+      let hasOvernightDep = false;
+      for (const id of ids) {
+        const r = recipesById[id]; if (!r) continue;
+        const sched = MP.schedule.forMeal(mealType, r, { mealTime, buffer: HELPER_BUFFER });
+        if (sched.startMin < earliestStart) earliestStart = sched.startMin;
+        if (sched.hasOvernightDep) hasOvernightDep = true;
+      }
+      const startLabel = isFinite(earliestStart) ? MP.schedule.fmtTime(earliestStart) : "—";
+      const mealEmoji = mealType === "breakfast" ? "🍳" : mealType === "lunch" ? "🥗" : "🍽️";
+
+      // Collect all components that have both a recipe and an image
+      const compImages = ALL_COMPONENTS.map((comp) => {
+        const id = mealObj[comp]; if (!id) return null;
+        const r = recipesById[id]; if (!r) return null;
+        const img = MP.recipeImage(r); if (!img) return null;
+        return { comp, recipe: r, img };
+      }).filter(Boolean);
+
+      return (
+        <div className="space-y-3">
+          {/* Per-component image strip */}
+          {compImages.length > 0 && (
+            <div className={`flex gap-1 rounded-2xl overflow-hidden`} style={{ height: "10rem" }}>
+              {compImages.map(({ comp, recipe, img }) => (
+                <a key={comp}
+                  href={recipe.youtube_url || undefined}
+                  target="_blank" rel="noopener"
+                  className="relative flex-1 overflow-hidden group"
+                  style={{ minWidth: 0 }}
+                  onClick={(e) => { if (!recipe.youtube_url) e.preventDefault(); }}>
+                  <img src={img} alt="" className="w-full h-full object-cover"
+                    onLoad={(e) => {
+                      if (!MP.isYoutubePlaceholder(e.target)) return;
+                      const s = e.target.src;
+                      if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                      if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                      e.target.closest("a").style.display = "none";
+                    }}
+                    onError={(e) => {
+                      const s = e.target.src;
+                      if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                      if (recipe.hero_image && s !== recipe.hero_image) { e.target.src = recipe.hero_image; return; }
+                      e.target.closest("a").style.display = "none";
+                    }} />
+                  {/* Recipe name only — no component type jargon */}
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 pt-6 pb-2 pointer-events-none">
+                    <div className="text-white text-xs font-medium leading-tight truncate">{MP.i18n.recipeName(recipe, lang)}</div>
+                  </div>
+                  {recipe.youtube_url && (
+                    <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition">▶</div>
+                  )}
+                </a>
+              ))}
+            </div>
+          )}
+          {/* Timing card */}
+          {hasOvernightDep ? (
+            <div className="bg-warm text-cream px-5 py-4 rounded-2xl">
+              <div className="text-sm font-semibold opacity-80 mb-2">{t(lang, "overnightWarn")}</div>
+              <div className="flex items-baseline gap-3">
+                <div><div className="text-xs opacity-60 uppercase tracking-wide">{t(lang, "serveBy")}</div><div className="num font-display text-3xl leading-none">{servedAtLabel}</div></div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-terra text-cream px-4 py-3 rounded-2xl flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1 leading-tight">{t(lang, "startCookingAt")}</div>
+                <div className="num font-display text-3xl leading-none">{startLabel}</div>
+              </div>
+              <div className="text-cream/30 text-2xl font-light shrink-0">→</div>
+              <div className="text-right min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1 leading-tight">{t(lang, "serveBy")}</div>
+                <div className="num font-display text-3xl leading-none">{servedAtLabel}</div>
+              </div>
+            </div>
+          )}
+          {/* Shopping list first — buy before cooking */}
+          <MealShoppingList mealType={mealType} day={day} recipesById={recipesById} planServes={planServes} lang={lang} nowMin={nowMin} />
+          {/* Recipes — one accordion per component */}
+          <div className="text-sm font-semibold text-warm/60 px-1 pt-2">{t(lang, "howToCook")}</div>
+          {ALL_COMPONENTS.map((comp, i) => {
+            const id = mealObj[comp]; if (!id) return null;
+            const r = recipesById[id]; if (!r) return null;
+            return (
+              <ComponentAccordion
+                key={comp} comp={comp} recipe={r}
+                mealServes={mealServes} lang={lang} onVerify={onVerify}
+                defaultOpen={false}
+              />
+            );
+          })}
+        </div>
+      );
+    }
+
+    function PrepTomorrow({ tomorrowDay, recipesById, lang }) {
+      if (!tomorrowDay) return null;
+      const items = [];
+      for (const meal of ["breakfast", "lunch", "dinner"]) {
+        for (const id of MP.getMealRecipeIds(tomorrowDay, meal)) {
+          const r = recipesById[id]; if (!r) continue;
+          for (const d of r.dependencies || []) {
+            const mealName = MP.i18n.meals[lang][meal];
+            const recipeName = MP.i18n.recipeName(r, lang);
+            if (d.type === "defrost" && d.hours_before >= 12)
+              items.push({ icon: "❄️", text: lang === "tl"
+                ? `Ilabas ang ${recipeName} sa freezer ngayon — para sa ${mealName} bukas.`
+                : `Take ${recipeName} out of the freezer today — for tomorrow's ${mealName}.` });
+            if (d.type === "marinate" && d.hours_before >= 8)
+              items.push({ icon: "🧴", text: lang === "tl"
+                ? `Simulan ang pag-marinate ng ${recipeName} ngayong gabi — para sa ${mealName} bukas.`
+                : `Start marinating the ${recipeName} tonight — for tomorrow's ${mealName}.` });
+          }
+        }
+      }
+      if (items.length === 0) return null;
+      return (
+        <section className="rounded-2xl overflow-hidden shadow-sm mt-4">
+          <div className="bg-warm text-cream px-5 py-4">
+            <div className="font-display text-xl">{t(lang, "beforeSleep")}</div>
+            <p className="text-sm opacity-80 mt-1">{t(lang, "prepInstructions")}</p>
+          </div>
+          <div className="bg-sand/60 divide-y divide-warm/10">
+            {items.map((it, i) => (
+              <div key={i} className="flex items-start gap-3 px-5 py-4">
+                <span className="text-2xl leading-none mt-0.5">{it.icon}</span>
+                <p className="text-base leading-relaxed">{it.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+
+    function ComingUpView({ plan, upcoming, recipesById, today, lang, onOpen }) {
+      const weekFloor = MP.date.mondayOf(today);
+      const allDays = [];
+      const seen = new Set();
+      const addPlan = (p) => {
+        if (!p) return;
+        for (const d of p.days || []) {
+          if (d.date < weekFloor) continue;
+          if (seen.has(d.date)) continue;
+          seen.add(d.date);
+          allDays.push({ ...d, _planServes: p.serves || 4 });
+        }
+      };
+      addPlan(plan);
+      for (const p of upcoming || []) addPlan(p);
+      allDays.sort((a, b) => a.date.localeCompare(b.date));
+
+      if (allDays.length === 0) {
+        return <p className="text-warm text-sm">{t(lang, "nothingPlanned")}</p>;
+      }
+
+      const groups = {};
+      for (const d of allDays) {
+        const wk = MP.date.mondayOf(d.date);
+        (groups[wk] = groups[wk] || []).push(d);
+      }
+      const weekKeys = Object.keys(groups).sort();
+      const todayMonday = MP.date.mondayOf(today);
+
+      return (
+        <div className="space-y-6">
+          {weekKeys.map((wk) => {
+            const label = wk === todayMonday ? t(lang, "thisWeek") :
+                          wk === MP.date.addDays(todayMonday, 7) ? t(lang, "nextWeek") :
+                          `${t(lang, "weekOf")} ${MP.date.prettyDate(wk)}`;
+            return (
+              <section key={wk}>
+                <h3 className="font-display text-xl text-terra mb-2">{label}</h3>
+                <div className="space-y-3">
+                  {groups[wk].map((d) => {
+                    const isToday = d.date === today;
+                    const isPast = d.date < today;
+                    return (
+                      <div key={d.date} className={`rounded-xl p-4 ring-1 ${
+                        isToday ? "bg-white ring-terra/40" :
+                        isPast ? "bg-white ring-black/5 opacity-60" :
+                        "bg-white ring-black/5"
+                      }`}>
+                        <div className="flex items-baseline justify-between">
+                          <div>
+                            <div className="font-display text-lg leading-tight">
+                              {MP.date.dayName(d.date)}
+                              {isToday && <span className="text-terra"> · {t(lang, "today")}</span>}
+                            </div>
+                            <div className="text-xs text-warm num mt-0.5">{MP.date.prettyDate(d.date)}</div>
+                          </div>
+                          {isPast && <span className="text-xs text-warm/50 italic">{t(lang, "doneLbl")}</span>}
+                        </div>
+                        <ul className="mt-2 space-y-1 text-sm">
+                          {["breakfast","lunch","dinner"].map((m) => {
+                            const ids = MP.getMealRecipeIds(d, m);
+                            if (!ids.length) return (
+                              <li key={m} className="flex justify-between text-warm/50 text-sm">
+                                <span className="uppercase tracking-wide text-xs">{MP.i18n.meals[lang][m]}</span>
+                                <span className="italic">{t(lang, "notPlanned")}</span>
+                              </li>
+                            );
+                            const mealObj = MP.getMealObj(d, m);
+                            const names = ALL_COMPONENTS
+                              .filter((c) => mealObj[c])
+                              .map((c) => {
+                                const r = recipesById[mealObj[c]];
+                                return r ? `${COMPONENT_ICONS[c]} ${MP.i18n.recipeName(r, lang)}` : null;
+                              }).filter(Boolean);
+                            const time = d[m + "_time"] || MP.schedule.defaultMealTime(m);
+                            const allDeps = ids.flatMap((id) => (recipesById[id]?.dependencies || []));
+                            const hasLongDep = allDeps.some((dep) => dep.hours_before >= 12);
+                            const hasMarinate = allDeps.some((dep) => dep.type === "marinate" && dep.hours_before < 12);
+                            return (
+                              <li key={m}>
+                                <button
+                                  onClick={() => onOpen && onOpen({ mealType: m, day: d })}
+                                  className="w-full flex items-start justify-between gap-2 text-left hover:bg-terra/5 rounded-lg px-1 py-1 transition">
+                                  <span className="uppercase tracking-wide text-xs text-warm min-w-[5.5rem] mt-0.5">{m}</span>
+                                  <span className="flex-1 text-sm leading-snug underline decoration-terra/30 underline-offset-2">
+                                    {names.join(" · ")}
+                                    {hasLongDep && <span className="ml-1 text-xs">🌙</span>}
+                                    {hasMarinate && <span className="ml-1 text-xs">🧂</span>}
+                                  </span>
+                                  <span className="text-xs text-warm num shrink-0 mt-0.5">{MP.schedule.fmtTime(MP.schedule.parseHM(time))}</span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function ItemRow({ it, has, onTick, srcLabel }) {
+      const amt = it.amount != null ? Number(Number(it.amount).toFixed(2)) : "";
+      return (
+        <li className={`flex items-center gap-3 text-sm px-4 py-3 transition ${has ? "bg-sage/5" : "bg-white"}`}>
+          <button
+            aria-label={has ? "Unmark" : "Mark as bought"}
+            onClick={onTick}
+            className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition ${
+              has ? "bg-sage border-sage text-white" : "border-warm/30 bg-white"
+            }`}>
+            {has && <span className="text-sm font-bold leading-none">✓</span>}
+          </button>
+          <span className="num text-warm/70 min-w-[4.5rem] text-xs">{amt} {it.unit || ""}</span>
+          <span className={`flex-1 ${has ? "line-through text-warm/50" : ""}`}>{it.item}</span>
+          {srcLabel && <span className="text-xs text-warm/50 shrink-0">{srcLabel}</span>}
+        </li>
+      );
+    }
+
+    function ShoppingView({ recipes, plan, pantry, onToggle, lang, sources, extras, onToggleExtra }) {
+      const groups = MP.buildShoppingList(recipes, plan, sources);
+      const [filter, setFilter] = useState(() => sessionStorage.getItem("mpShopFilter") || "all");
+      const [search, setSearch] = useState("");
+
+      const sourceLabels = {
+        "wet-market": "🥬 Wet market", "supermarket": "🛒 Fusion / Marketplace",
+        "hktvmall": "📦 HKTVmall", "other": "Other",
+      };
+      const categoryLabels = {
+        meat: "Meat & Seafood", produce: "Vegetables & Fruit",
+        dairy: "Dairy & Eggs", pantry: "Pantry & Dry Goods",
+        bakery: "Bread & Bakery", frozen: "Frozen", other: "Other",
+      };
+      const sourceOrder = ["wet-market", "supermarket", "hktvmall", "other"];
+      const key = (it) => (it.item || "").toLowerCase().trim();
+
+      function updateFilter(val) {
+        setFilter(val);
+        sessionStorage.setItem("mpShopFilter", val);
+      }
+
+      // Counts per store
+      const counts = {};
+      for (const src of sourceOrder) {
+        const g = groups[src];
+        if (!g) continue;
+        let bought = 0, total = 0;
+        for (const items of Object.values(g)) for (const it of items) {
+          total++; if (pantry[key(it)]) bought++;
+        }
+        counts[src] = { bought, total, remaining: total - bought };
+      }
+      const extrasRemaining = (extras || []).filter((x) => !x.done).length;
+      const extrasTotal = (extras || []).length;
+      const extrasBought = extrasTotal - extrasRemaining;
+
+      // Overall totals
+      const overallTotal = Object.values(counts).reduce((s, c) => s + c.total, 0) + extrasTotal;
+      const overallBought = Object.values(counts).reduce((s, c) => s + c.bought, 0) + extrasBought;
+      const overallRemaining = overallTotal - overallBought;
+
+      const showSource = (src) => filter === "all" || filter === src;
+      const showExtras = extrasTotal > 0 && (filter === "all" || filter === "extras");
+
+      // Search
+      const searchActive = search.trim().length > 0;
+      let searchResults = [];
+      if (searchActive) {
+        const q = search.toLowerCase();
+        for (const src of sourceOrder) {
+          const g = groups[src];
+          if (!g) continue;
+          for (const [cat, items] of Object.entries(g)) {
+            for (const it of items) {
+              if ((it.item || "").toLowerCase().includes(q))
+                searchResults.push({ ...it, _src: src, _cat: cat });
+            }
+          }
+        }
+      }
+
+      return (
+        <div>
+          {/* Summary card */}
+          {!searchActive && overallTotal > 0 && (
+            <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm ring-1 ring-black/5">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="font-display text-lg">Shopping summary</h3>
+                <span className="num text-sm text-warm">{overallBought} of {overallTotal} done</span>
+              </div>
+              {/* Progress bar */}
+              <div className="h-2 bg-sand rounded-full overflow-hidden mb-3">
+                <div
+                  className="h-full bg-sage rounded-full transition-all"
+                  style={{ width: overallTotal ? `${(overallBought / overallTotal) * 100}%` : "0%" }}
+                />
+              </div>
+              {/* Per-store breakdown */}
+              <ul className="space-y-1.5">
+                {sourceOrder.map((src) => {
+                  const c = counts[src]; if (!c || c.total === 0) return null;
+                  const allDone = c.remaining === 0;
+                  return (
+                    <li key={src} className="flex items-center justify-between text-sm">
+                      <span className={allDone ? "text-sage" : "text-ink"}>{sourceLabels[src]}</span>
+                      <span className={`num text-xs ${allDone ? "text-sage font-semibold" : "text-warm"}`}>
+                        {allDone ? "✓ all done" : `${c.bought} of ${c.total} · ${c.remaining} left`}
+                      </span>
+                    </li>
+                  );
+                })}
+                {extrasTotal > 0 && (
+                  <li className="flex items-center justify-between text-sm">
+                    <span className={extrasRemaining === 0 ? "text-sage" : "text-ink"}>➕ Extras</span>
+                    <span className={`num text-xs ${extrasRemaining === 0 ? "text-sage font-semibold" : "text-warm"}`}>
+                      {extrasRemaining === 0 ? "✓ all done" : `${extrasBought} of ${extrasTotal} · ${extrasRemaining} left`}
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {/* Search */}
+          <div className="relative mb-3">
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search items…"
+              className="w-full rounded-xl border border-warm/20 bg-white px-4 py-2.5 pr-10 text-sm" />
+            {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-warm">×</button>}
+          </div>
+
+          {/* Store filter nav */}
+          {!searchActive && (
+            <nav className="sticky top-11 z-10 -mx-4 px-4 py-2 mb-4 bg-cream/95 backdrop-blur border-b border-warm/10 flex flex-wrap gap-2">
+              <button onClick={() => updateFilter("all")}
+                className={`px-3 py-1.5 rounded-full text-sm ${filter === "all" ? "bg-ink text-cream" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                All
+              </button>
+              {sourceOrder.map((src) => {
+                if (!counts[src]) return null;
+                const active = filter === src;
+                const { remaining } = counts[src];
+                return (
+                  <button key={src} onClick={() => updateFilter(src)}
+                    className={`px-3 py-1.5 rounded-full text-sm ${active ? "bg-ink text-cream" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                    {sourceLabels[src]}
+                    {remaining > 0 && <span className="ml-1.5 num text-xs opacity-70">{remaining}</span>}
+                    {remaining === 0 && counts[src].total > 0 && <span className="ml-1.5 text-sage text-xs">✓</span>}
+                  </button>
+                );
+              })}
+              {extrasTotal > 0 && (
+                <button onClick={() => updateFilter("extras")}
+                  className={`px-3 py-1.5 rounded-full text-sm ${filter === "extras" ? "bg-ink text-cream" : "bg-white text-warm ring-1 ring-warm/20"}`}>
+                  ➕ Extras {extrasRemaining > 0 && <span className="ml-1 num text-xs opacity-70">{extrasRemaining}</span>}
+                  {extrasRemaining === 0 && extrasTotal > 0 && <span className="ml-1 text-sage text-xs">✓</span>}
+                </button>
+              )}
+            </nav>
+          )}
+
+          {/* Search results */}
+          {searchActive && (
+            <div className="mb-6">
+              <div className="text-xs text-warm uppercase tracking-wide mb-2">Results for "{search}"</div>
+              {searchResults.length === 0 && <p className="text-sm text-warm/60 italic">No items found.</p>}
+              <ul className="rounded-2xl overflow-hidden divide-y divide-sand space-y-0 shadow-sm ring-1 ring-black/5">
+                {searchResults.map((it, i) => {
+                  const has = !!pantry[key(it)];
+                  return <ItemRow key={i} it={it} has={has}
+                    onTick={() => onToggle(key(it), !has)}
+                    srcLabel={sourceLabels[it._src]} />;
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Normal view */}
+          {!searchActive && (
+            <>
+              {showExtras && (
+                <section className="mb-6">
+                  <h3 className="font-display text-lg mb-2">➕ Extras</h3>
+                  {(() => {
+                    const unchecked = (extras || []).filter((x) => !x.done);
+                    const checked = (extras || []).filter((x) => x.done);
+                    return (
+                      <div className="rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/5 divide-y divide-sand">
+                        {unchecked.map((x) => (
+                          <li key={x.id} className="list-none flex items-center gap-3 text-sm px-4 py-3 bg-white">
+                            <button onClick={() => onToggleExtra && onToggleExtra(x.id, true)}
+                              className="shrink-0 w-7 h-7 rounded-full border-2 border-warm/30 bg-white flex items-center justify-center" />
+                            <span className="flex-1">{x.item}</span>
+                            <span className="text-xs text-warm/50">{sourceLabels[x.source] || x.source}</span>
+                          </li>
+                        ))}
+                        {checked.length > 0 && (
+                          <>
+                            <div className="px-4 py-2 bg-sage/10 text-xs font-semibold text-sage uppercase tracking-wide">
+                              Got ✓ — {checked.length} item{checked.length > 1 ? "s" : ""}
+                            </div>
+                            {checked.map((x) => (
+                              <li key={x.id} className="list-none flex items-center gap-3 text-sm px-4 py-3 bg-sage/5">
+                                <button onClick={() => onToggleExtra && onToggleExtra(x.id, false)}
+                                  className="shrink-0 w-7 h-7 rounded-full border-2 bg-sage border-sage text-white flex items-center justify-center">
+                                  <span className="text-sm font-bold leading-none">✓</span>
+                                </button>
+                                <span className="flex-1 line-through text-warm/50">{x.item}</span>
+                                <span className="text-xs text-warm/50">{sourceLabels[x.source] || x.source}</span>
+                              </li>
+                            ))}
+                          </>
+                        )}
+                        {unchecked.length === 0 && checked.length === 0 && (
+                          <li className="list-none text-sm text-warm/50 px-4 py-3 bg-white">No extras added.</li>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </section>
+              )}
+
+              {sourceOrder.map((src) => {
+                const g = groups[src];
+                if (!g || !showSource(src)) return null;
+                // Collect all items across categories, split bought/needed
+                const allNeeded = [], allBought = [], catMap = {};
+                for (const [cat, items] of Object.entries(g)) {
+                  for (const it of items) {
+                    const has = !!pantry[key(it)];
+                    const entry = { ...it, _cat: cat };
+                    if (has) allBought.push(entry); else allNeeded.push(entry);
+                  }
+                  catMap[cat] = true;
+                }
+                if (allNeeded.length === 0 && allBought.length === 0) return null;
+                return (
+                  <section key={src} className="mb-6">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h3 className="font-display text-lg">{sourceLabels[src] || src}</h3>
+                      {allBought.length > 0 && (
+                        <span className="text-xs text-sage num">{allBought.length} of {allNeeded.length + allBought.length} got</span>
+                      )}
+                    </div>
+                    <div className="rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/5 divide-y divide-sand">
+                      {/* Items still needed — grouped by category */}
+                      {Object.keys(catMap).map((cat) => {
+                        const needed = allNeeded.filter((it) => it._cat === cat);
+                        if (needed.length === 0) return null;
+                        return (
+                          <React.Fragment key={cat}>
+                            <div className="px-4 py-2 bg-sand/50 text-xs font-semibold uppercase tracking-wide text-warm">
+                              {categoryLabels[cat] || cat}
+                            </div>
+                            {needed.map((it, i) => (
+                              <ItemRow key={i} it={it} has={false}
+                                onTick={() => onToggle(key(it), true)} />
+                            ))}
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Got section — always visible when there are bought items */}
+                      {allBought.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 bg-sage/10 text-xs font-semibold text-sage uppercase tracking-wide">
+                            Got ✓ — {allBought.length} item{allBought.length > 1 ? "s" : ""}
+                          </div>
+                          {allBought.map((it, i) => (
+                            <ItemRow key={i} it={it} has={true}
+                              onTick={() => onToggle(key(it), false)} />
+                          ))}
+                        </>
+                      )}
+                      {/* All done state */}
+                      {allNeeded.length === 0 && allBought.length > 0 && (
+                        <div className="px-4 py-3 bg-sage/5 text-sm text-sage font-medium text-center">
+                          ✓ All done at {sourceLabels[src]}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </>
+          )}
+        </div>
+      );
+    }
+
+    function useNow() {
+      const [now, setNow] = useState(() => MP.date.hkNowMin());
+      useEffect(() => {
+        const id = setInterval(() => setNow(MP.date.hkNowMin()), 1000);
+        return () => clearInterval(id);
+      }, []);
+      return now;
+    }
+
+    function useClock() {
+      const getHKParts = () => {
+        const now = new Date();
+        const fmt = new Intl.DateTimeFormat("en-US", {
+          timeZone: "Asia/Hong_Kong",
+          hour: "numeric", minute: "2-digit", second: "2-digit",
+          day: "numeric", month: "short", weekday: "short",
+          hour12: true,
+        });
+        return Object.fromEntries(fmt.formatToParts(now).map((p) => [p.type, p.value]));
+      };
+      const [parts, setParts] = useState(getHKParts);
+      useEffect(() => {
+        const id = setInterval(() => setParts(getHKParts()), 1000);
+        return () => clearInterval(id);
+      }, []);
+      const sec = parseInt(parts.second || "0");
+      return {
+        h: parts.hour || "12",
+        m: parts.minute || "00",
+        s: parts.second || "00",
+        ampm: parts.dayPeriod || "",
+        blink: sec % 2 === 0,
+        dateStr: `${parts.weekday || ""}, ${parts.day || ""} ${parts.month || ""}`,
+      };
+    }
+
+    // Today meal view — shows schedule + one meal (meal controlled by App via bottom nav)
+    function TodayView({ todayDay, tomorrowDay, recipesById, planServes, nowMin, lang, onVerify, activeMeal }) {
+      const MEAL_EMOJI = { breakfast: "🍳", lunch: "🥗", dinner: "🍽️" };
+      const hasRecipes = MP.getMealRecipeIds(todayDay, activeMeal).length > 0;
+      const mealLabel = MP.i18n.meals[lang][activeMeal];
+      const notPlannedMsg = {
+        en: [`Faith and Gustaf haven't planned ${activeMeal} yet.`, "Check back later — they may still add something."],
+        tl: [`Hindi pa nag-plan sina Faith at Gustaf ng ${mealLabel}.`, "Bumalik ka mamaya — baka may idagdag pa sila."],
+        il: [`Saan pay a nagsagana da Faith ken Gustaf ti ${mealLabel}.`, "Sumangpet manen — mabalin nga mangidagdag pay da."],
+      };
+      const [notPlannedLine1, notPlannedLine2] = notPlannedMsg[lang] || notPlannedMsg.en;
+      return (
+        <div className="space-y-4">
+          {/* Meal heading */}
+          {hasRecipes && (
+            <div>
+              <h2 className="font-display text-2xl text-ink leading-none">
+                {MEAL_EMOJI[activeMeal]} {t(lang, "pleaseCookFor")} {mealLabel}
+              </h2>
+              <p className="text-base text-ink/60 mt-1">{t(lang, "tapEachDish")}</p>
+            </div>
+          )}
+          <MealSection
+            key={activeMeal}
+            mealType={activeMeal}
+            day={todayDay}
+            recipesById={recipesById}
+            planServes={planServes}
+            lang={lang}
+            onVerify={onVerify}
+            nowMin={nowMin}
+          />
+          {!hasRecipes && (
+            <div className="mt-10 mx-auto max-w-xs text-center space-y-3">
+              <div className="text-5xl">{MEAL_EMOJI[activeMeal]}</div>
+              <p className="font-display text-xl text-ink/70">{notPlannedLine1}</p>
+              <p className="text-sm text-warm/50">{notPlannedLine2}</p>
+            </div>
+          )}
+          {/* Overnight prep reminder */}
+          <PrepTomorrow tomorrowDay={tomorrowDay} recipesById={recipesById} lang={lang} />
+        </div>
+      );
+    }
+
+    function App() {
+      const [lang, setLang] = useState(langStore());
+      const [tab, setTab] = useState(MP.date.currentMeal()); // "breakfast"|"lunch"|"dinner"|"coming"|"shop"
+      const [recipes, setRecipes] = useState(null);
+      const [plan, setPlan] = useState(null);
+      const [upcoming, setUpcoming] = useState([]);
+      const [pantry, setPantry] = useState({});
+      const [sources, setSources] = useState({});
+      const [extras, setExtras] = useState([]);
+      const [study, setStudy] = useState(null); // { recipe, mealType, date, mealTime, mealServes }
+      const [err, setErr] = useState(null);
+
+      useEffect(() => { localStorage.setItem("mpHelperLang", lang); }, [lang]);
+
+      useEffect(() => {
+        (async () => {
+          try {
+            const today = MP.date.hkToday();
+            const monday = MP.date.mondayOf(today);
+            const [rs, wp, pa, upc, sr, ex] = await Promise.all([
+              MP.api.getRecipes(), MP.api.getWeekplan(), MP.api.getPantry(),
+              MP.api.getWeekplans(monday).catch(() => []),
+              MP.api.getSources().catch(() => ({})),
+              MP.api.getExtras().catch(() => ([])),
+            ]);
+            setRecipes(rs);
+            setPlan(wp);
+            setUpcoming(upc || []);
+            setPantry(pa || {});
+            setSources(sr || {});
+            setExtras(ex || []);
+          } catch (e) { setErr(e.message); }
+        })();
+      }, []);
+
+      async function togglePantryItem(item, have) {
+        setPantry((p) => {
+          const next = { ...p };
+          if (have) next[item] = new Date().toISOString().slice(0, 10);
+          else delete next[item];
+          return next;
+        });
+        try { await MP.api.togglePantry(item, have); }
+        catch (e) {
+          flash("Could not save: " + e.message, true);
+          const fresh = await MP.api.getPantry().catch(() => ({}));
+          setPantry(fresh || {});
+        }
+      }
+
+      const today = MP.date.hkToday();
+      const nowMin = useNow();
+      const recipesById = useMemo(() => {
+        const m = {};
+        (recipes || []).forEach((r) => { m[r.id] = r; });
+        return m;
+      }, [recipes]);
+
+      const todayDay = useMemo(() => {
+        if (!plan) return null;
+        return (plan.days || []).find((d) => d.date === today);
+      }, [plan, today]);
+
+      const tomorrowDay = useMemo(() => {
+        if (!plan) return null;
+        const tmr = MP.date.addDays(today, 1);
+        return (plan.days || []).find((d) => d.date === tmr);
+      }, [plan, today]);
+
+      // Auto-jump to the next upcoming meal tab when the plan first loads.
+      // MUST be before early returns (Rules of Hooks).
+      const autoTabDone = React.useRef(false);
+      useEffect(() => {
+        if (!todayDay || autoTabDone.current) return;
+        autoTabDone.current = true;
+        const nowMinVal = MP.date.hkNowMin();
+        const next = ["breakfast", "lunch", "dinner"].find((m) => {
+          const mt = todayDay[m + "_time"] || MP.schedule.defaultMealTime(m);
+          return MP.schedule.parseHM(mt) > nowMinVal;
+        }) || "dinner";
+        setTab(next);
+      }, [todayDay]);
+
+      // MUST be declared before any early returns so hook count stays stable.
+      const needCount = useMemo(() => {
+        if (!recipes || !plan) return 0;
+        const g = MP.buildShoppingList(recipes, plan);
+        let n = 0;
+        for (const src of Object.values(g)) {
+          for (const cat of Object.values(src)) {
+            for (const it of cat) {
+              if (!pantry[(it.item || "").toLowerCase().trim()]) n++;
+            }
+          }
+        }
+        return n;
+      }, [recipes, plan, pantry]);
+
+      async function verify(recipeId) {
+        try {
+          const r = recipesById[recipeId];
+          if (!r) return;
+          const updated = { ...r, translations_verified: true };
+          try {
+            await MP.api.upsertRecipe(recipeId, updated);
+            setRecipes((rs) => rs.map((x) => (x.id === recipeId ? updated : x)));
+            flash("✓ Thanks — translation marked verified.");
+          } catch (e) {
+            flash("Ask Faith to mark this verified — helper can't change recipes.");
+          }
+        } catch (e) { flash("Error: " + e.message, true); }
+      }
+
+      if (err) {
+        return (
+          <div className="p-6 max-w-md mx-auto">
+            <p className="text-terra">Could not load: {err}</p>
+            <p className="text-warm text-sm mt-2">Check the Worker URL in <code>shared.js</code>.</p>
+          </div>
+        );
+      }
+      if (!recipes || !plan) {
+        return <div className="p-6 text-warm">Loading…</div>;
+      }
+      if (!todayDay) {
+        return (
+          <div className="p-6 max-w-md mx-auto">
+            <h1 className="font-display text-3xl">{MP.date.prettyDate(today, lang)}</h1>
+            <p className="mt-2 text-warm">{t(lang, "noPlanToday")}</p>
+            <div className="mt-6"><LangToggle lang={lang} onChange={setLang} /></div>
+          </div>
+        );
+      }
+
+      const planServes = plan.serves || 4;
+      const MEAL_TABS = ["breakfast", "lunch", "dinner"];
+      const MEAL_EMOJI = { breakfast: "🍳", lunch: "🥗", dinner: "🍽️" };
+      const upNextMeal = todayDay ? MEAL_TABS.find((m) => {
+        if (!MP.getMealRecipeIds(todayDay, m).length) return false;
+        const mt = todayDay[m + "_time"] || MP.schedule.defaultMealTime(m);
+        return MP.schedule.parseHM(mt) > nowMin;
+      }) : null;
+      const isMealTab = MEAL_TABS.includes(tab);
+
+      return (
+        <main className="max-w-xl mx-auto px-4 pt-14 pb-24">
+          <NowBar day={todayDay} nextDay={tomorrowDay} recipesById={recipesById} nowMin={nowMin} lang={lang} />
+
+          <header className="mb-6 mt-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                {isMealTab && <div className="font-display text-2xl text-terra mb-1">{t(lang, "helloLeni")}</div>}
+                <h1 className="font-display text-4xl leading-none">{MP.date.dayName(today, lang)}</h1>
+                <div className="text-sm text-warm mt-1 num">{MP.date.prettyDate(today, lang)}</div>
+              </div>
+              <div className="shrink-0 mt-1">
+                <LangToggle lang={lang} onChange={setLang} />
+              </div>
+            </div>
+          </header>
+
+          {isMealTab && (
+            <TodayView
+              todayDay={todayDay} tomorrowDay={tomorrowDay}
+              recipesById={recipesById} planServes={planServes}
+              nowMin={nowMin} lang={lang} onVerify={verify}
+              activeMeal={tab}
+            />
+          )}
+
+          {tab === "coming" && (
+            <ComingUpView plan={plan} upcoming={upcoming} recipesById={recipesById} today={today} lang={lang}
+              onOpen={(info) => setStudy(info)} />
+          )}
+
+          {tab === "shop" && (
+            <ShoppingView
+              recipes={recipes} plan={plan} pantry={pantry}
+              onToggle={togglePantryItem} lang={lang}
+              sources={sources} extras={extras}
+              onToggleExtra={async (id, done) => {
+                setExtras((xs) => xs.map((x) => x.id === id ? { ...x, done } : x));
+                try { await MP.api.updateExtra(id, { done }); } catch (e) { flash("Save failed", true); }
+              }}
+            />
+          )}
+
+          <div id="flash" aria-live="polite"
+            className="fixed left-1/2 -translate-x-1/2 bottom-24 bg-ink text-cream px-4 py-2 rounded-full text-sm shadow-lg opacity-0 pointer-events-none transition">
+          </div>
+
+          {/* Bottom navigation */}
+          <nav className="fixed bottom-0 left-0 right-0 z-30 bg-sand border-t border-warm/20 flex">
+            {MEAL_TABS.map((meal) => {
+              const isActive = tab === meal;
+              const isUpNext = meal === upNextMeal;
+              const hasRecipes = todayDay && MP.getMealRecipeIds(todayDay, meal).length > 0;
+              return (
+                <button key={meal} onClick={() => setTab(meal)}
+                  className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 relative transition outline-none focus:outline-none min-w-0 px-1
+                    ${isActive ? "text-terra" : hasRecipes ? "text-warm" : "text-warm/30"}`}>
+                  {isUpNext && !isActive && (
+                    <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-terra" />
+                  )}
+                  <span className="text-lg leading-none">{MEAL_EMOJI[meal]}</span>
+                  <span className="text-[9px] font-medium w-full text-center leading-tight truncate">{MP.i18n.meals[lang][meal]}</span>
+                  {isActive && <span className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-terra rounded-full" />}
+                </button>
+              );
+            })}
+            <button onClick={() => setTab("coming")}
+              className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 relative transition outline-none focus:outline-none min-w-0 px-1 ${tab === "coming" ? "text-terra" : "text-warm"}`}>
+              <span className="text-lg leading-none">📅</span>
+              <span className="text-[9px] font-medium w-full text-center leading-tight truncate">{t(lang, "navThisWeek")}</span>
+              {tab === "coming" && <span className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-terra rounded-full" />}
+            </button>
+            <button onClick={() => setTab("shop")}
+              className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 relative transition outline-none focus:outline-none min-w-0 px-1 ${tab === "shop" ? "text-terra" : "text-warm"}`}>
+              <span className="text-lg leading-none">🛒</span>
+              <span className="text-[9px] font-medium w-full text-center leading-tight truncate relative">
+                {t(lang, "navShopping")}
+                {needCount > 0 && <span className="absolute -top-2 -right-3 bg-terra text-cream text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{needCount}</span>}
+              </span>
+              {tab === "shop" && <span className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-terra rounded-full" />}
+            </button>
+          </nav>
+
+          {study && (
+            <div className="fixed inset-0 z-40 bg-ink/60 flex items-start justify-center p-3 overflow-y-auto"
+              onClick={() => setStudy(null)}>
+              <div className="bg-cream w-full max-w-xl rounded-2xl shadow-xl mt-6 mb-10 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-warm/10 sticky top-0 bg-cream z-10">
+                  <div className="font-display text-lg">
+                    {MP.date.dayName(study.day.date, lang)} · {MP.i18n.meals[lang][study.mealType]}
+                  </div>
+                  <button onClick={() => setStudy(null)} className="text-warm text-2xl leading-none">×</button>
+                </div>
+                <div className="p-4">
+                  <MealSection
+                    mealType={study.mealType} day={study.day}
+                    recipesById={recipesById} planServes={planServes}
+                    lang={lang} onVerify={verify} />
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+      );
+    }
+
+    function flash(msg, bad=false) {
+      const el = document.getElementById("flash");
+      if (!el) return;
+      el.textContent = msg;
+      el.style.background = bad ? "#b4593a" : "";
+      el.style.opacity = "1";
+      clearTimeout(el._to);
+      el._to = setTimeout(() => { el.style.opacity = "0"; }, 2200);
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
