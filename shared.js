@@ -339,12 +339,43 @@
     return { protein: null, vegetable: null, carb: null, soup: null, salad: null, ...v };
   };
 
-  // Returns array of all recipe IDs assigned to a meal slot.
+  // Returns array of {recipeId, role} for a meal value, handling all 3 shapes:
+  //   - string id           → [{recipeId, role:"main"}]
+  //   - object {role:id...} → mapped to role-tagged array
+  //   - array [{recipeId,role}] → returned as-is (defensive copy)
+  MP.getMealRecipes = function getMealRecipes(mealValue) {
+    if (!mealValue) return [];
+    if (typeof mealValue === "string") return [{ recipeId: mealValue, role: "main" }];
+    if (Array.isArray(mealValue)) {
+      return mealValue
+        .filter((x) => x && (typeof x === "string" || x.recipeId))
+        .map((x) => (typeof x === "string"
+          ? { recipeId: x, role: "main" }
+          : { recipeId: x.recipeId, role: x.role || "main" }));
+    }
+    if (typeof mealValue === "object") {
+      // Legacy object shape: {protein: id, vegetable: id, carb: id, soup: id, salad: id, starter: id}
+      const roleMap = {
+        protein: "main", main: "main",
+        vegetable: "side", veggie: "side", side: "side", carb: "side",
+        starter: "starter", soup: "soup", salad: "salad",
+        "one-pot": "one-pot", onepot: "one-pot",
+      };
+      const out = [];
+      for (const key of Object.keys(mealValue)) {
+        const v = mealValue[key];
+        if (typeof v === "string" && v) {
+          out.push({ recipeId: v, role: roleMap[key] || "side" });
+        }
+      }
+      return out;
+    }
+    return [];
+  };
+
+  // Returns array of recipe IDs for a meal slot (back-compat alias).
   MP.getMealRecipeIds = function getMealRecipeIds(day, meal) {
-    const v = day[meal];
-    if (!v) return [];
-    if (typeof v === "string") return [v];
-    return Object.values(v).filter((id) => id && typeof id === "string");
+    return MP.getMealRecipes(day && day[meal]).map((r) => r.recipeId);
   };
 
   // Normalize ingredient item name for deduplication:
