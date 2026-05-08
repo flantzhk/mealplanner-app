@@ -36,6 +36,15 @@
     /* No border-radius anywhere except small dot/circle UI (rounded-full) */
     [class*="rounded-"]:not([class*="rounded-full"]) { border-radius: 0 !important; }
 
+    /* Buttons feel like buttons — global press feedback */
+    button, [role="button"], a.btn { transition: transform 80ms ease, opacity 80ms ease, background-color 120ms ease; cursor: pointer; }
+    button:active:not(:disabled), [role="button"]:active, a.btn:active { transform: translateY(1px); }
+
+    /* Card-like clickables: ring on focus/active so it's clear */
+    .card-tap { transition: background-color 120ms ease; }
+    .card-tap:hover { background-color: #FAFAF7; }
+    .card-tap:active { background-color: #EAE3D9; }
+
     @keyframes mp-pulse {
       0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(200,57,43,0.55); }
       50% { transform: scale(1.18); opacity: 0.85; box-shadow: 0 0 0 8px rgba(200,57,43,0); }
@@ -136,7 +145,7 @@ function Onboarding({ onContinue }) {
           <button
             type="button"
             onClick={() => onContinue && onContinue()}
-            className="bg-terra text-bg0 px-6 py-[14px] font-mono uppercase tracking-[0.16em] text-[11px] hover:opacity-90"
+            className="bg-terra text-bg0 text-[16px] font-medium px-7 py-4 hover:bg-terra/90 active:bg-terra/80"
           >
             Start planning your week →
           </button>
@@ -458,7 +467,7 @@ function SettingsView({ members, onInvite, onRevoke, onCopyMagicLink }) {
           <button
             type="button"
             onClick={handleSendInvite}
-            className="self-start bg-terra text-bg0 px-6 py-[14px] font-mono uppercase tracking-[0.16em] text-[11px] hover:opacity-90"
+            className="self-start bg-terra text-bg0 text-[15px] font-medium px-6 py-3.5 hover:bg-terra/90 active:bg-terra/80"
           >
             Send invite →
           </button>
@@ -499,14 +508,14 @@ function SettingsView({ members, onInvite, onRevoke, onCopyMagicLink }) {
             <button
               type="button"
               onClick={handleCopy}
-              className="flex-1 bg-transparent text-ink border border-ink px-6 py-[14px] font-mono uppercase tracking-[0.16em] text-[11px] hover:bg-ink hover:text-bg0"
+              className="flex-1 bg-cream text-ink border border-ink text-[15px] font-medium px-6 py-3.5 hover:bg-bg0 active:bg-sand"
             >
               Copy link
             </button>
             <button
               type="button"
               onClick={handleCopy}
-              className="flex-1 bg-terra text-bg0 px-6 py-[14px] font-mono uppercase tracking-[0.16em] text-[11px] hover:opacity-90"
+              className="flex-1 bg-terra text-bg0 text-[15px] font-medium px-6 py-3.5 hover:bg-terra/90 active:bg-terra/80"
             >
               Share via WhatsApp
             </button>
@@ -863,7 +872,7 @@ function WeekView({ recipes, plan, todayKey, onMealClick, onPlayRecipe, onPrintW
             Print week
           </button>
           <button onClick={onShare}
-            style={{ minHeight: 44 }} className="font-mono text-[11px] uppercase tracking-[0.16em] px-4 py-3 bg-ink text-bg0 hover:bg-terra">
+            style={{ minHeight: 44 }} className="text-[14px] font-medium px-5 py-3 bg-terra text-bg0 hover:bg-terra/90 active:bg-terra/80">
             Share
           </button>
         </div>
@@ -953,7 +962,7 @@ function WeekView({ recipes, plan, todayKey, onMealClick, onPlayRecipe, onPrintW
 
           return (
             <div key={dayKey}
-                 className={`grid grid-cols-[64px_1fr] md:grid-cols-[92px_1fr] border-b border-border hover:bg-bg0 transition ${isToday ? "border-t-2 border-t-terra" : ""}`}>
+                 className={`grid grid-cols-[64px_1fr] md:grid-cols-[92px_1fr] border-b border-border card-tap ${isToday ? "border-t-2 border-t-terra" : ""}`}>
               <div className="py-4 md:py-6 pl-4 md:pl-7 pr-0 border-r border-border">
                 <div className={`font-mono text-[10px] uppercase tracking-[0.18em] ${isToday ? "text-terra" : "text-warm"}`}>
                   {dn}{isToday ? " · today" : ""}
@@ -1134,7 +1143,7 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
             Print today
           </button>
           <button onClick={onShare}
-            style={{ minHeight: 44 }} className="font-mono text-[11px] uppercase tracking-[0.16em] px-4 py-3 bg-ink text-bg0 hover:bg-terra">
+            style={{ minHeight: 44 }} className="text-[14px] font-medium px-5 py-3 bg-terra text-bg0 hover:bg-terra/90 active:bg-terra/80">
             Share
           </button>
         </div>
@@ -1583,7 +1592,7 @@ function VideoPlayerModal({ recipe, lang, onClose, onLangChange, onStartCooking 
         {/* Start cooking — full-width vermilion */}
         <button
           onClick={onStartCooking}
-          className="w-full bg-terra text-cream font-mono uppercase tracking-[0.16em] text-xs py-3 hover:bg-ink transition mt-auto"
+          className="w-full bg-terra text-bg0 text-[16px] font-medium py-4 hover:bg-terra/90 active:bg-terra/80 mt-auto"
         >
           Start cooking timer →
         </button>
@@ -1705,14 +1714,14 @@ function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToH
             <button
               onClick={onSendToHelper}
               style={{ minHeight: 44 }}
-              className="bg-ink text-cream font-mono uppercase tracking-[0.16em] text-xs px-5 py-3.5 hover:bg-terra transition"
+              className="bg-terra text-bg0 text-[15px] font-medium px-5 py-3 hover:bg-terra/90 active:bg-terra/80"
             >
               Send to Leni
             </button>
             <button
               onClick={onPrint}
               style={{ minHeight: 44 }}
-              className="bg-cream text-ink border border-border font-mono uppercase tracking-[0.16em] text-xs px-5 py-3.5 hover:bg-bg0 transition"
+              className="bg-cream text-ink border border-ink text-[15px] font-medium px-5 py-3 hover:bg-bg0 active:bg-sand"
             >
               Print
             </button>
@@ -1739,7 +1748,7 @@ function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToH
             <button
               key={t.k}
               onClick={() => setView(t.k)}
-              className={`flex-1 px-6 py-4 border-r border-border last:border-r-0 font-mono uppercase tracking-[0.16em] text-[11px] text-left transition ${on ? "bg-ink text-cream" : "bg-cream text-ink hover:bg-bg0"}`}
+              className={`flex-1 px-5 py-4 border-r border-border last:border-r-0 text-[15px] font-medium text-left transition ${on ? "bg-terra text-bg0" : "bg-cream text-ink hover:bg-bg0"}`}
             >
               <span className="opacity-60 mr-3">{t.num}</span>{t.label}
             </button>
@@ -1902,7 +1911,7 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
         </div>
         <button
           onClick={onAddRecipe}
-          className="bg-terra text-cream font-mono uppercase tracking-[0.16em] text-xs px-4 py-3 hover:bg-ink transition"
+          className="bg-terra text-bg0 text-[15px] font-medium px-5 py-3 hover:bg-terra/90 active:bg-terra/80"
         >
           + Add recipe
         </button>
@@ -2208,7 +2217,7 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
             />
             <button
               onClick={() => val.trim() && onSet(val.trim())}
-              className="w-full bg-terra text-bg0 px-6 py-3 font-mono text-xs uppercase tracking-[0.18em]"
+              className="w-full bg-terra text-bg0 text-[16px] font-medium px-6 py-4 hover:bg-terra/90 active:bg-terra/80"
             >
               Continue →
             </button>
