@@ -30,7 +30,7 @@
     };
   </script>
   <style>
-    html, body { background: #F4F1EC; color: #1A1A1A; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    html, body { background: #F4F1EC; color: #1A1A1A; font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; font-size: 16px; line-height: 1.55; }
     h1, h2, h3, h4 { font-family: "Source Serif 4", Georgia, serif; font-weight: 400; letter-spacing: -0.005em; }
     .num { font-variant-numeric: tabular-nums; }
     /* No border-radius anywhere except small dot/circle UI (rounded-full) */
@@ -213,22 +213,15 @@ function AppShell({ activeView, onNavigate, header, children }) {
                 key={t.id}
                 href="#"
                 onClick={(e) => handleNav(e, t.id)}
+                style={{ minHeight: 44 }}
                 className={
-                  'flex items-center justify-between py-[10px] border-b ' +
+                  'flex items-center py-3 border-b text-[17px] ' +
                   (active
                     ? 'border-terra text-terra font-medium'
                     : 'border-border text-ink hover:text-terra')
                 }
               >
-                <span>{t.label}</span>
-                <span
-                  className={
-                    'font-mono uppercase tracking-[0.1em] text-[10px] ' +
-                    (active ? 'text-terra' : 'text-sage')
-                  }
-                >
-                  {t.num}
-                </span>
+                {t.label}
               </a>
             );
           })}
@@ -243,7 +236,7 @@ function AppShell({ activeView, onNavigate, header, children }) {
       </aside>
 
       {/* MAIN COLUMN */}
-      <main className="flex-1 min-w-0 flex flex-col pb-[64px] lg:pb-0">
+      <main className="flex-1 min-w-0 flex flex-col pb-[88px] lg:pb-0">
         {header && (
           <div className="border-b border-border px-6 py-6 lg:px-10 lg:py-8 flex items-start justify-between gap-6 flex-wrap">
             {header}
@@ -255,7 +248,7 @@ function AppShell({ activeView, onNavigate, header, children }) {
       </main>
 
       {/* BOTTOM TAB BAR — mobile only */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-cream border-t border-border flex z-50">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-cream border-t border-border flex z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {tabs.map((t) => {
           const active = activeView === t.id;
           return (
@@ -264,20 +257,12 @@ function AppShell({ activeView, onNavigate, header, children }) {
               href="#"
               onClick={(e) => handleNav(e, t.id)}
               className={
-                'flex-1 flex flex-col items-center justify-center py-2 border-r border-border last:border-r-0 ' +
-                (active ? 'text-terra' : 'text-ink')
+                'flex-1 flex items-center justify-center border-r border-border last:border-r-0 ' +
+                (active ? 'text-terra font-semibold' : 'text-ink')
               }
-              style={active ? { borderTop: '2px solid #C8392B', marginTop: '-1px' } : {}}
+              style={Object.assign({ minHeight: 56 }, active ? { borderTop: '2px solid #C8392B', marginTop: '-1px' } : {})}
             >
-              <span
-                className={
-                  'font-mono uppercase tracking-[0.14em] text-[9px] mb-1 ' +
-                  (active ? 'text-terra' : 'text-sage')
-                }
-              >
-                {t.num}
-              </span>
-              <span className="text-[12px] leading-none" style={{ fontFamily: 'Inter, sans-serif' }}>
+              <span className="text-[15px] leading-none" style={{ fontFamily: 'Inter, sans-serif' }}>
                 {t.label}
               </span>
             </a>
@@ -769,13 +754,13 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
         <PlayDot size={28} />
       </button>
       <button type="button" onClick={onClick} className="text-left min-w-0 w-full">
-        <Eyebrow className={accent ? "text-terra" : ""}>
-          {mealLabel(mealType)}{accent ? " · Now playing" : ""}
-        </Eyebrow>
-        <div className="font-display text-[16px] leading-tight mt-1.5 text-ink truncate">
+        <div className={`text-[12px] mb-1 ${accent ? "text-terra font-semibold" : "text-warm"}`}>
+          {mealLabel(mealType)}{accent ? " · cooking now" : ""}
+        </div>
+        <div className="font-display text-[18px] leading-[1.2] text-ink">
           {r.name}
         </div>
-        <div className={`font-mono text-[9px] uppercase tracking-[0.14em] mt-1.5 ${accent ? "text-terra" : "text-warm/60"}`}>
+        <div className={`text-[13px] mt-1 ${accent ? "text-terra" : "text-warm"}`}>
           {sub}
         </div>
       </button>
@@ -1196,29 +1181,21 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
         )}
 
         {/* bottom text */}
-        <div className="absolute left-9 right-9 bottom-9 z-[2] text-bg0">
-          <Eyebrow className="text-bg0/80 mb-3">
-            Today's cooking{heroSched ? " · serve " + fmtClock(heroMealServeMin) : ""}
-          </Eyebrow>
-          <h2 className="font-display font-normal text-[60px] leading-[0.98] tracking-[-0.02em] max-w-[760px]">
-            {heroRecipe ? heroRecipe.name + "." : "Nothing planned."}
+        <div className="absolute left-6 right-6 md:left-9 md:right-9 bottom-6 md:bottom-9 z-[2] text-bg0">
+          <div className="text-bg0/85 text-[15px] mb-2">
+            Today{heroSched ? " · serve at " + fmtClock(heroMealServeMin) : ""}
+          </div>
+          <h2 className="font-display font-normal text-[40px] md:text-[60px] leading-[0.98] tracking-[-0.02em] max-w-[760px]">
+            {heroRecipe ? heroRecipe.name : "Nothing planned."}
           </h2>
-          <div className="mt-6 flex flex-wrap gap-8 items-end">
+          <div className="mt-5 flex flex-wrap gap-6 md:gap-8 items-end">
             <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.55)" }}>Start</div>
-              <div className="font-display text-[20px] leading-[1.1] mt-0.5">{heroSched ? heroSched.startTime : "—"}</div>
+              <div className="text-[12px] uppercase" style={{ color: "rgba(250,250,247,0.7)" }}>Start cooking</div>
+              <div className="font-display text-[28px] md:text-[32px] leading-none mt-1 tabular-nums">{heroSched ? heroSched.startTime : "—"}</div>
             </div>
             <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.55)" }}>Active</div>
-              <div className="font-display text-[20px] leading-[1.1] mt-0.5">{heroActive ? heroActive + " min" : "—"}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.55)" }}>Total</div>
-              <div className="font-display text-[20px] leading-[1.1] mt-0.5">{heroTotal ? heroTotal + " min" : "—"}</div>
-            </div>
-            <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.55)" }}>For</div>
-              <div className="font-display text-[20px] leading-[1.1] mt-0.5">Family of {heroServes}</div>
+              <div className="text-[12px] uppercase" style={{ color: "rgba(250,250,247,0.7)" }}>For</div>
+              <div className="font-display text-[28px] md:text-[32px] leading-none mt-1">{heroServes} people</div>
             </div>
           </div>
         </div>
@@ -1304,25 +1281,24 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
                     )}
                   </button>
                   <div className="pt-1">
-                    <div className={`font-mono text-[10px] uppercase tracking-[0.18em] mb-2.5 font-semibold`}
-                         style={{ color: accentColor }}>
-                      {isCook ? `Start cooking · ${mealLabel(t.meal)}` : `Serve · ${mealLabel(t.meal)}`}
+                    <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+                      <span className="font-display text-[26px] md:text-[32px] leading-none tabular-nums" style={{ color: accentColor }}>
+                        {fmtClock(t.at)}
+                      </span>
+                      <span className="text-[14px] md:text-[15px] text-warm">
+                        {isCook ? `cook · serve in ${r.cook_time_mins || "?"} min` : `serve at the table`}
+                      </span>
                     </div>
-                    <h4 className="font-display font-normal text-[28px] leading-[1.1] mb-2 tracking-[-0.01em]">
+                    <h4 className="font-display font-normal text-[26px] md:text-[32px] leading-[1.1] mb-3 tracking-[-0.01em]">
                       {r.name}
                     </h4>
-                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-warm mb-4">
-                      {isCook
-                        ? `Start ${fmtClock(t.at)} · ${r.cook_time_mins || "?"} min total`
-                        : `Serve ${fmtClock(t.at)}`}
-                    </div>
-                    <p className="text-sm leading-[1.6] text-ink/85 max-w-[520px]">
-                      {(r.summary || r.description || (r.steps && r.steps[0] && (r.steps[0].instruction || r.steps[0])) || "Follow the recipe video for steps and timing.")}
+                    <p className="text-[16px] leading-[1.55] text-ink/85 max-w-[520px]">
+                      {(r.summary || r.description || (r.steps && r.steps[0] && (r.steps[0].instruction || r.steps[0])) || "Tap the photo to watch the video.")}
                     </p>
                     {Array.isArray(r.ingredients) && r.ingredients.length > 0 && (
                       <div className="mt-4 flex gap-2 flex-wrap">
                         {r.ingredients.slice(0, 3).map((ing, k) => (
-                          <span key={k} className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink px-2 py-1 border border-border bg-bg0">
+                          <span key={k} className="text-[14px] text-ink px-3 py-1.5 border border-border bg-bg0">
                             {ing.item}{ing.amount ? ` · ${ing.amount}${ing.unit || ""}` : ""}
                           </span>
                         ))}
@@ -1330,8 +1306,9 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
                     )}
                     {r.youtube_url && (
                       <a href={r.youtube_url} target="_blank" rel="noopener noreferrer"
-                         className="inline-block mt-4 font-mono text-[10px] uppercase tracking-[0.16em] text-terra hover:underline">
-                        Watch video →
+                         style={{ minHeight: 44 }}
+                         className="inline-flex items-center mt-5 px-5 py-3 bg-terra text-bg0 text-[15px] font-medium hover:bg-terra/90">
+                        ▶ Watch video
                       </a>
                     )}
                   </div>
@@ -1932,16 +1909,17 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
       </div>
 
       {/* filter row */}
-      <div className="border-x border-b border-border bg-cream p-6 flex flex-wrap gap-3 items-center">
+      <div className="border-x border-b border-border bg-cream p-4 md:p-6 flex flex-wrap gap-3 items-center">
         {/* cuisine pills */}
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-2">
           {cuisines.map((c) => {
             const on = cuisine === c;
             return (
               <button
                 key={c}
                 onClick={() => setCuisine(c)}
-                className={`font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-border ${on ? "bg-terra text-cream border-terra" : "bg-cream text-ink hover:bg-bg0"}`}
+                style={{ minHeight: 44 }}
+                className={`text-[14px] px-4 py-2.5 border ${on ? "bg-terra text-cream border-terra font-medium" : "border-border text-ink hover:bg-bg0"}`}
               >
                 {c === "all" ? "All cuisines" : c}
               </button>
@@ -1962,7 +1940,8 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
               <button
                 key={m.k}
                 onClick={() => setMealType(m.k)}
-                className={`font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border-r border-border last:border-r-0 ${on ? "bg-terra text-cream" : "bg-cream text-ink hover:bg-bg0"}`}
+                style={{ minHeight: 44 }}
+                className={`text-[14px] px-4 py-2.5 border-r border-border last:border-r-0 ${on ? "bg-terra text-cream font-medium" : "bg-cream text-ink hover:bg-bg0"}`}
               >
                 {m.label}
               </button>
@@ -2019,15 +1998,15 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
                 className="p-4 cursor-pointer flex-1 flex flex-col"
                 onClick={() => onSelectRecipe && onSelectRecipe(r)}
               >
-                <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">
+                <div className="text-[13px] text-warm mb-1.5">
                   {r.cuisine || "—"} · {total || (r.cook_time_mins || 0)} min
                 </div>
-                <h3 className="font-display text-[20px] leading-[1.1] text-ink mb-3">{r.name}</h3>
-                <div className="flex flex-wrap gap-1 mt-auto">
+                <h3 className="font-display text-[22px] leading-[1.15] text-ink mb-3">{r.name}</h3>
+                <div className="flex flex-wrap gap-1.5 mt-auto">
                   {(r.meal_type || []).map((m) => (
                     <span
                       key={m}
-                      className="font-mono uppercase tracking-[0.14em] text-[9px] px-2 py-0.5 border border-border text-warm"
+                      className="text-[12px] px-2.5 py-1 border border-border text-warm capitalize"
                     >
                       {m}
                     </span>
