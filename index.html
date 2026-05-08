@@ -664,7 +664,7 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
   if (items.length === 0) {
     return (
       <button type="button" onClick={onClick}
-        className="text-left grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-r border-border last:border-r-0 w-full hover:bg-bg0 transition">
+        className="text-left grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-b md:border-b-0 md:border-r border-border last:border-b-0 md:last:border-r-0 w-full hover:bg-bg0 transition">
         <div className="w-[88px] h-[88px]"
              style={{ background: "repeating-linear-gradient(45deg, #EAE3D9 0 6px, #F4F1EC 6px 12px)" }} />
         <div className="min-w-0">
@@ -685,7 +685,7 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
       if (r && r.cook_time_mins) totalMin += r.cook_time_mins;
     }
     return (
-      <div className="px-6 py-4 border-r border-border last:border-r-0 hover:bg-bg0 transition">
+      <div className="px-6 py-4 border-b md:border-b-0 md:border-r border-border last:border-b-0 md:last:border-r-0 hover:bg-bg0 transition">
         <div className="flex items-baseline gap-2 pb-3 border-b border-border">
           <Eyebrow>
             {mealLabel(mealType)} · {items.length} recipes{totalMin ? ` · ${totalMin} min total` : ""}
@@ -741,7 +741,7 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
   if (!r) {
     return (
       <button type="button" onClick={onClick}
-        className="text-left grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-r border-border last:border-r-0 w-full hover:bg-bg0">
+        className="text-left grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-b md:border-b-0 md:border-r border-border last:border-b-0 md:last:border-r-0 w-full hover:bg-bg0">
         <div className="w-[88px] h-[88px] bg-sand" />
         <div className="min-w-0">
           <Eyebrow>{mealLabel(mealType)}</Eyebrow>
@@ -756,7 +756,7 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
     ? accentNote
     : `${r.cook_time_mins ? r.cook_time_mins + " min" : ""}${firstTag(r) ? " · " + firstTag(r) : ""}`;
   return (
-    <div className="grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-r border-border last:border-r-0 items-center hover:bg-bg0 transition">
+    <div className="grid grid-cols-[88px_1fr] gap-4 px-6 py-5 border-b md:border-b-0 md:border-r border-border last:border-b-0 md:last:border-r-0 items-center hover:bg-bg0 transition">
       <button type="button" onClick={() => onPlay && onPlay(r)}
               className="relative w-[88px] h-[88px] bg-sand block">
         <RecipeImg recipe={r} size={200} />
@@ -1963,7 +1963,8 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search recipes…"
-          className="font-display text-base bg-cream border border-border px-4 py-2 min-w-[220px] focus:outline-none focus:border-ink placeholder:text-warm/60"
+          style={{ minHeight: 44 }}
+          className="font-display text-base bg-cream border border-border px-4 py-3 min-w-[220px] focus:outline-none focus:border-ink placeholder:text-warm/60"
         />
       </div>
 
@@ -1996,7 +1997,7 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
                 <button
                   onClick={(e) => { e.stopPropagation(); onPlayRecipe && onPlayRecipe(r); }}
                   aria-label="Play video"
-                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-cream/95 text-ink flex items-center justify-center hover:bg-terra hover:text-cream transition"
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-terra text-bg0 flex items-center justify-center hover:bg-terra/90 active:bg-terra/80 shadow-[0_0_0_8px_rgba(200,57,43,0.18)]"
                 >
                   <span style={{ borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid currentColor", marginLeft: "2px", width: 0, height: 0, display: "inline-block" }} />
                 </button>
