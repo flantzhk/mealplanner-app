@@ -2088,23 +2088,28 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
         () => !localStorage.getItem("mp_onboarded")
       );
       const [lang, setLang] = useState(() => localStorage.getItem("mp_lang") || "en");
-      const [authError, setAuthError] = useState("");
 
-      // Load data
+      // Load data — try cloud first (if token), fall back to bundled seed so the
+      // app always opens with content. Token is only needed to sync your weekly plan.
       useEffect(() => {
-        if (!MP.api.hasToken()) {
-          setAuthError("no-token");
-          return;
+        const loadSeed = () =>
+          fetch("./recipes.seed.json").then((r) => r.json()).catch(() => []);
+
+        if (MP.api.hasToken()) {
+          Promise.all([
+            MP.api.getRecipes().catch(() => null),
+            MP.api.getWeekplan().catch(() => null),
+          ]).then(async ([recs, plan]) => {
+            const finalRecs = Array.isArray(recs) && recs.length ? recs : await loadSeed();
+            setRecipes(finalRecs);
+            setWeekplan(plan);
+          });
+        } else {
+          loadSeed().then((recs) => {
+            setRecipes(Array.isArray(recs) ? recs : []);
+            setWeekplan(null);
+          });
         }
-        Promise.all([
-          MP.api.getRecipes().catch(() => []),
-          MP.api.getWeekplan().catch(() => null),
-        ]).then(([recs, plan]) => {
-          setRecipes(Array.isArray(recs) ? recs : []);
-          setWeekplan(plan);
-        }).catch((e) => {
-          setAuthError(String(e.message || e));
-        });
       }, []);
 
       const todayKey = MP.date.hkToday();
@@ -2123,10 +2128,7 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
         return <Onboarding onContinue={completeOnboarding} />;
       }
 
-      // Token gate — show a friendly setup screen if user isn't authenticated
-      if (authError === "no-token") {
-        return <TokenSetup onSet={(t) => { MP.api.setToken(t); window.location.reload(); }} />;
-      }
+      // Token entry available from Settings — but app always opens with seed data.
 
       const playRecipe = (recipe) => setActiveRecipe(recipe);
       const closePlayer = () => setActiveRecipe(null);
