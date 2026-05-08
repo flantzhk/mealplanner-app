@@ -1898,263 +1898,151 @@ function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToH
 
 function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
   const [q, setQ] = React.useState("");
-  const list = recipes || [];
+  const [cuisine, setCuisine] = React.useState("all");
+  const [mealType, setMealType] = React.useState("all");
 
-  // Filter by search across name, cuisine, tags
-  const matches = React.useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return list;
-    return list.filter((r) => {
-      const hay = [
-        r.name, r.name_tl, r.name_il, r.cuisine,
-        ...(Array.isArray(r.tags) ? r.tags : []),
-      ].filter(Boolean).join(" ").toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [list, q]);
+  const cuisines = React.useMemo(() => {
+    return ["all"].concat(Array.from(new Set((recipes || []).map((r) => r.cuisine).filter(Boolean))));
+  }, [recipes]);
 
-  // Build "shelves" — each one a horizontal row of cards
-  const shelves = React.useMemo(() => {
-    const has = (r, tag) => Array.isArray(r.tags) && r.tags.includes(tag);
-    const isVeg = (r) => has(r, "vegetarian") || has(r, "vegan");
-    const isQuick = (r) =>
-      ((r.active_time_mins || 0) + (r.cook_time_mins || 0)) <= 25 ||
-      has(r, "quick");
-
-    const out = [];
-
-    // Quick weeknight: ≤25 min total
-    out.push({
-      key: "quick",
-      eyebrow: "Tonight",
-      title: "Quick weeknight.",
-      subtitle: "On the table in 25 minutes.",
-      items: matches.filter(isQuick).slice(0, 12),
-    });
-
-    // Make-ahead — slow cooks
-    const makeAhead = matches.filter(
-      (r) => (r.cook_time_mins || 0) >= 60 || has(r, "make-ahead")
-    );
-    if (makeAhead.length) {
-      out.push({
-        key: "slow",
-        eyebrow: "Slow & low",
-        title: "Make-ahead.",
-        subtitle: "An hour or more — set it and forget it.",
-        items: makeAhead.slice(0, 12),
-      });
-    }
-
-    // Per-cuisine shelves: top 5 cuisines by recipe count
-    const byCuisine = {};
-    for (const r of matches) {
-      if (!r.cuisine) continue;
-      (byCuisine[r.cuisine] ||= []).push(r);
-    }
-    const topCuisines = Object.entries(byCuisine)
-      .sort((a, b) => b[1].length - a[1].length)
-      .slice(0, 5);
-    for (const [c, items] of topCuisines) {
-      out.push({
-        key: "c-" + c,
-        eyebrow: c,
-        title: c + ".",
-        subtitle: `${items.length} recipe${items.length === 1 ? "" : "s"} · explore the kitchen.`,
-        items: items.slice(0, 12),
-      });
-    }
-
-    // Vegetarian
-    const veg = matches.filter(isVeg);
-    if (veg.length) {
-      out.push({
-        key: "veg",
-        eyebrow: "Plant-led",
-        title: "Vegetarian.",
-        subtitle: "Garden-first, never an afterthought.",
-        items: veg.slice(0, 12),
-      });
-    }
-
-    // Breakfast
-    const breakfast = matches.filter((r) =>
-      Array.isArray(r.meal_type) && r.meal_type.includes("breakfast")
-    );
-    if (breakfast.length) {
-      out.push({
-        key: "breakfast",
-        eyebrow: "Mornings",
-        title: "Breakfast.",
-        subtitle: "Start strong.",
-        items: breakfast.slice(0, 12),
-      });
-    }
-
-    return out.filter((s) => s.items.length > 0);
-  }, [matches]);
+  const filtered = React.useMemo(() => {
+    return (recipes || [])
+      .filter((r) => mealType === "all" ? true : (r.meal_type || []).includes(mealType))
+      .filter((r) => cuisine === "all" ? true : r.cuisine === cuisine)
+      .filter((r) => q ? (r.name || "").toLowerCase().includes(q.toLowerCase()) : true);
+  }, [recipes, mealType, cuisine, q]);
 
   return (
-    <div className="bg-cream">
-      {/* Header */}
-      <div className="px-6 md:px-9 pt-7 md:pt-9 pb-5 border-b border-border">
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-warm">
-          Recipe library · {list.length} recipes
+    <div className="bg-cream text-ink">
+
+      {/* work-head */}
+      <div className="border border-border p-9 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6 items-end bg-cream">
+        <div>
+          <div className="font-mono uppercase tracking-[0.16em] text-[11px] text-warm mb-2">
+            Recipe library · {(recipes || []).length} recipes
+          </div>
+          <h1 className="font-display text-[44px] leading-[1.0] tracking-[-0.015em]">Recipes.</h1>
         </div>
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mt-2">
-          <h1 className="font-display text-[32px] md:text-[40px] leading-[1.05] tracking-[-0.015em]">
-            Browse.
-          </h1>
-          <button
-            type="button"
-            onClick={onAddRecipe}
-            className="self-start md:self-end font-mono text-[11px] uppercase tracking-[0.18em] px-5 py-3 bg-terra text-bg0 hover:bg-terra/90"
-            style={{ minHeight: 44 }}>
-            + Add recipe
-          </button>
-        </div>
+        <button
+          onClick={onAddRecipe}
+          className="bg-terra text-cream font-mono uppercase tracking-[0.16em] text-xs px-4 py-3 hover:bg-ink transition"
+        >
+          + Add recipe
+        </button>
       </div>
 
-      {/* Search */}
-      <div className="px-6 md:px-9 py-4 border-b border-border">
+      {/* filter row */}
+      <div className="border-x border-b border-border bg-cream p-6 flex flex-wrap gap-3 items-center">
+        {/* cuisine pills */}
+        <div className="flex flex-wrap gap-1">
+          {cuisines.map((c) => {
+            const on = cuisine === c;
+            return (
+              <button
+                key={c}
+                onClick={() => setCuisine(c)}
+                className={`font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-border ${on ? "bg-terra text-cream border-terra" : "bg-cream text-ink hover:bg-bg0"}`}
+              >
+                {c === "all" ? "All cuisines" : c}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* meal-type filter */}
+        <div className="flex border border-border ml-auto">
+          {[
+            { k: "all", label: "Any" },
+            { k: "breakfast", label: "Breakfast" },
+            { k: "lunch", label: "Lunch" },
+            { k: "dinner", label: "Dinner" },
+          ].map((m) => {
+            const on = mealType === m.k;
+            return (
+              <button
+                key={m.k}
+                onClick={() => setMealType(m.k)}
+                className={`font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border-r border-border last:border-r-0 ${on ? "bg-terra text-cream" : "bg-cream text-ink hover:bg-bg0"}`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* search */}
         <input
-          type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search recipes, cuisines, tags…"
-          className="w-full bg-bg0 border border-border px-4 py-3 font-display text-[16px] text-ink placeholder:italic placeholder:text-sage focus:outline-none focus:border-terra"
-          style={{ minHeight: 44 }}
+          placeholder="Search recipes…"
+          className="font-display text-base bg-cream border border-border px-4 py-2 min-w-[220px] focus:outline-none focus:border-ink placeholder:text-warm/60"
         />
       </div>
 
-      {/* Shelves */}
-      {q.trim() === "" ? (
-        <div className="pb-10">
-          {shelves.map((shelf) => (
-            <Shelf
-              key={shelf.key}
-              eyebrow={shelf.eyebrow}
-              title={shelf.title}
-              subtitle={shelf.subtitle}
-              items={shelf.items}
-              onPlayRecipe={onPlayRecipe}
-              onSelectRecipe={onSelectRecipe}
-            />
-          ))}
-          {shelves.length === 0 && (
-            <div className="px-6 md:px-9 py-12 text-center font-display text-warm">
-              Nothing in the library yet.
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="pb-10">
-          <Shelf
-            eyebrow="Search"
-            title={`Results for “${q}”.`}
-            subtitle={`${matches.length} match${matches.length === 1 ? "" : "es"}.`}
-            items={matches.slice(0, 60)}
-            onPlayRecipe={onPlayRecipe}
-            onSelectRecipe={onSelectRecipe}
-          />
-          {matches.length === 0 && (
-            <div className="px-6 md:px-9 py-12 text-center font-display text-warm">
-              No recipes match.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+      {/* count */}
+      <div className="border-x border-b border-border bg-cream px-6 py-3">
+        <span className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm">
+          Showing {filtered.length} of {(recipes || []).length}
+        </span>
+      </div>
 
-// One Spotify-style horizontal shelf: header + scroll-snapping card row.
-function Shelf({ eyebrow, title, subtitle, items, onPlayRecipe, onSelectRecipe }) {
-  return (
-    <section className="border-b border-border">
-      <div className="px-6 md:px-9 pt-8 pb-3">
-        <div className="font-mono text-[10px] md:text-[11px] uppercase tracking-[0.18em] text-terra mb-1.5">
-          {eyebrow}
-        </div>
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="font-display text-[24px] md:text-[28px] leading-[1.1] tracking-[-0.01em]">
-            {title}
-          </h2>
-          {subtitle && (
-            <div className="hidden md:block font-display text-[13px] text-warm leading-[1.5]">
-              {subtitle}
+      {/* grid */}
+      <div className="border-x border-b border-border bg-cream p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        {filtered.map((r, idx) => {
+          const thumb = pickRecipeThumb(r, idx);
+          const total = (r.prep_time_mins || 0) + (r.cook_time_mins || 0);
+          return (
+            <div key={r.id} className="border border-border bg-cream flex flex-col">
+              {/* photo with play overlay */}
+              <div
+                className="relative bg-bg0 cursor-pointer"
+                style={{ aspectRatio: "4 / 3" }}
+                onClick={() => onPlayRecipe && onPlayRecipe(r)}
+              >
+                <img
+                  src={thumb}
+                  alt=""
+                  className="w-full h-full object-cover block absolute inset-0"
+                  onError={recipeThumbOnError(r, idx)}
+                />
+                <button
+                  onClick={(e) => { e.stopPropagation(); onPlayRecipe && onPlayRecipe(r); }}
+                  aria-label="Play video"
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-cream/95 text-ink flex items-center justify-center hover:bg-terra hover:text-cream transition"
+                >
+                  <span style={{ borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "9px solid currentColor", marginLeft: "2px", width: 0, height: 0, display: "inline-block" }} />
+                </button>
+              </div>
+
+              {/* body — click opens editor */}
+              <div
+                className="p-4 cursor-pointer flex-1 flex flex-col"
+                onClick={() => onSelectRecipe && onSelectRecipe(r)}
+              >
+                <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">
+                  {r.cuisine || "—"} · {total || (r.cook_time_mins || 0)} min
+                </div>
+                <h3 className="font-display text-[20px] leading-[1.1] text-ink mb-3">{r.name}</h3>
+                <div className="flex flex-wrap gap-1 mt-auto">
+                  {(r.meal_type || []).map((m) => (
+                    <span
+                      key={m}
+                      className="font-mono uppercase tracking-[0.14em] text-[9px] px-2 py-0.5 border border-border text-warm"
+                    >
+                      {m}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-        {subtitle && (
-          <div className="md:hidden font-display text-[13px] text-warm leading-[1.5] mt-1">
-            {subtitle}
+          );
+        })}
+        {filtered.length === 0 && (
+          <div className="col-span-full p-9 text-center font-display text-warm">
+            No recipes match these filters.
           </div>
         )}
       </div>
-      <div className="overflow-x-auto pb-7" style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }}>
-        <div className="flex gap-4 px-6 md:px-9">
-          {items.map((r) => (
-            <ShelfCard
-              key={r.id}
-              recipe={r}
-              onPlayRecipe={onPlayRecipe}
-              onSelectRecipe={onSelectRecipe}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ShelfCard({ recipe, onPlayRecipe, onSelectRecipe }) {
-  const total = (recipe.active_time_mins || 0) + (recipe.cook_time_mins || 0);
-  const subtitle = [recipe.cuisine, total ? total + " min" : null].filter(Boolean).join(" · ");
-  return (
-    <div
-      className="shrink-0 w-[160px] md:w-[180px]"
-      style={{ scrollSnapAlign: "start" }}>
-      <button
-        type="button"
-        onClick={() => onPlayRecipe && onPlayRecipe(recipe)}
-        className="relative w-full h-[160px] md:h-[180px] bg-sand block overflow-hidden group"
-        aria-label={`Watch ${recipe.name}`}
-        style={{ minHeight: 44 }}>
-        <img
-          src={pickRecipeThumb(recipe)}
-          alt=""
-          onError={(e) => recipeThumbOnError(e, recipe)}
-          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-          loading="lazy"
-        />
-        <span
-          className="absolute rounded-full bg-terra flex items-center justify-center"
-          style={{
-            width: 44, height: 44, right: 10, bottom: 10,
-            transition: "transform 200ms",
-          }}>
-          <span style={{
-            width: 0, height: 0,
-            borderLeft: "12px solid #FAFAF7",
-            borderTop: "8px solid transparent",
-            borderBottom: "8px solid transparent",
-            marginLeft: 3,
-          }} />
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelectRecipe && onSelectRecipe(recipe)}
-        className="block w-full text-left mt-3 px-1"
-        style={{ minHeight: 44 }}>
-        <div className="font-display text-[15px] leading-[1.2] text-ink line-clamp-2">
-          {recipe.name}
-        </div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-warm mt-1.5">
-          {subtitle || "—"}
-        </div>
-      </button>
     </div>
   );
 }
