@@ -5501,16 +5501,25 @@ function MealIngredientStrip({ recipes, byId, max, className }) {
           />
         );
       } else if (view === "settings") {
+        const hasToken = MP.api.hasToken();
         content = (
           <React.Fragment>
-            <SettingsView
-              members={members}
-              onInvite={(d) => console.log("invite", d)}
-              onRevoke={(m) => console.log("revoke", m)}
-              onCopyMagicLink={(p) => console.log("magic-link", p)}
-            />
+            {/* CONNECTION — first thing, most prominent */}
             {typeof SettingsPanel !== "undefined" && (
-              <div className="border-t border-border bg-cream p-6">
+              <div className={`px-6 md:px-9 py-7 md:py-9 border-b border-border ${hasToken ? "bg-bg0" : "bg-accent-soft border-l-[3px] border-l-terra"}`}>
+                <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+                  <h2 className="font-display text-[26px] md:text-[32px] leading-none">
+                    {hasToken ? "Connected" : "Connect to your cloud"}
+                  </h2>
+                  <span className={`text-[13px] ${hasToken ? "text-warm" : "text-terra font-semibold"}`}>
+                    {hasToken ? "✓ Plans sync to your worker" : "⚠ Plans aren't saving yet"}
+                  </span>
+                </div>
+                <p className="text-[15px] text-warm mb-5 max-w-[560px] leading-[1.55]">
+                  {hasToken
+                    ? "Your meal plan, recipes, pantry, and shopping list are saved to your Cloudflare Worker. Disconnect by clearing the token below."
+                    : "Paste your access token to sync the meal plan, recipes, pantry, and shopping. Without a token, the app browses recipes but can't save changes."}
+                </p>
                 <SettingsPanel
                   initialBase={(localStorage.getItem("mpApiBase") || "")}
                   initialToken={(localStorage.getItem("mpFaithToken") || "")}
@@ -5518,6 +5527,12 @@ function MealIngredientStrip({ recipes, byId, max, className }) {
                 />
               </div>
             )}
+            <SettingsView
+              members={members}
+              onInvite={(d) => console.log("invite", d)}
+              onRevoke={(m) => console.log("revoke", m)}
+              onCopyMagicLink={(p) => console.log("magic-link", p)}
+            />
           </React.Fragment>
         );
       }
