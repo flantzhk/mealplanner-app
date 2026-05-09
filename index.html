@@ -84,7 +84,7 @@
 
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
-    const APP_VERSION = "v3.0 · 2026-05-08";
+    const APP_VERSION = "v3.1 · 2026-05-09";
 
     // Bridge so component code can call getMealRecipes() at top-level:
     function getMealRecipes(mealValue) { return MP.getMealRecipes(mealValue); }
@@ -1048,7 +1048,7 @@ function OverlapBand({ label, message }) {
 //   onPlayRecipe : (recipe) => void
 //   onPrintToday : () => void
 //   onShare      : () => void
-function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, onPrintToday, onShare }) {
+function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, onPrintToday, onShare, eatenLog, onCooked }) {
   const byId = React.useMemo(() => indexById(recipes), [recipes]);
   const day = (plan && plan[todayKey]) || {};
   const tomorrowKey = MP.date.addDays(todayKey, 1);
@@ -1313,13 +1313,18 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
                         ))}
                       </div>
                     )}
-                    {r.youtube_url && (
-                      <a href={r.youtube_url} target="_blank" rel="noopener noreferrer"
-                         style={{ minHeight: 44 }}
-                         className="inline-flex items-center mt-5 px-5 py-3 bg-terra text-bg0 text-[15px] font-medium hover:bg-terra/90">
-                        ▶ Watch video
-                      </a>
-                    )}
+                    <div className="mt-5 flex flex-wrap gap-3 items-center">
+                      {r.youtube_url && (
+                        <button type="button" onClick={() => onPlayRecipe && onPlayRecipe(r)}
+                                style={{ minHeight: 44 }}
+                                className="inline-flex items-center px-5 py-3 bg-terra text-bg0 text-[15px] font-medium hover:bg-terra/90 active:bg-terra/80">
+                          ▶ Watch video
+                        </button>
+                      )}
+                      {isCook && typeof MarkCookedButton !== "undefined" && (
+                        <MarkCookedButton recipeId={r.id} day={todayKey} eatenLog={eatenLog} onCooked={onCooked} />
+                      )}
+                    </div>
                   </div>
                 </div>
               </React.Fragment>
@@ -1327,6 +1332,9 @@ function TodayView({ recipes, plan, todayKey, lang, onLangChange, onPlayRecipe, 
           })}
         </div>
       </div>
+      {typeof PrepTomorrow !== "undefined" && (
+        <PrepTomorrow plan={plan} todayKey={todayKey} recipes={recipes} />
+      )}
 
       <style>{`
         @keyframes mp-pulse {
@@ -1616,7 +1624,7 @@ function VideoPlayerModal({ recipe, lang, onClose, onLangChange, onStartCooking 
 //   onSendToHelper — () => void
 // ═════════════════════════════════════════════════════════════════════════════
 
-function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToHelper }) {
+function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToHelper, pantry, sources, extras, onTogglePantry, onChangeSource, onAddExtra, onUpdateExtra, onRemoveExtra }) {
   const [view, setView] = React.useState("meal"); // "meal" | "store" | "recipe"
   const [checked, setChecked] = React.useState({}); // key: meal-key|item-idx → bool
   const recipeMap = React.useMemo(() => {
@@ -1834,21 +1842,39 @@ function PantryView({ recipes, plan, weekRange, onPlayRecipe, onPrint, onSendToH
         </div>
       )}
 
-      {/* ── BY STORE view (stub) ────────────────────────────────── */}
-      {view === "store" && (
-        <div className="border-x border-b border-border p-9 text-center">
-          <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">By store</div>
-          <p className="font-display text-warm">
-            Showing aggregated by store — uses <code className="font-mono text-[12px]">MP.buildShoppingList(recipes, plan)</code>.
-          </p>
-        </div>
+      {/* ── BY STORE view ───────────────────────────────────────── */}
+      {view === "store" && typeof ShoppingByStore !== "undefined" && (
+        <ShoppingByStore
+          recipes={recipes}
+          plan={plan}
+          weekStart={weekRange && weekRange.start}
+          sources={sources || {}}
+          extras={extras || []}
+          pantry={pantry || []}
+          onTogglePantry={onTogglePantry}
+          onChangeSource={onChangeSource}
+        />
       )}
 
-      {/* ── BY RECIPE view (stub) ───────────────────────────────── */}
-      {view === "recipe" && (
-        <div className="border-x border-b border-border p-9 text-center">
-          <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">By recipe</div>
-          <p className="font-display text-warm">Showing one list per recipe in the plan.</p>
+      {/* ── BY RECIPE view ──────────────────────────────────────── */}
+      {view === "recipe" && typeof ShoppingByRecipe !== "undefined" && (
+        <ShoppingByRecipe
+          recipes={recipes}
+          plan={plan}
+          weekStart={weekRange && weekRange.start}
+          onPlay={onPlayRecipe}
+        />
+      )}
+
+      {/* ── Extras editor (always shown below toggle) ─────────── */}
+      {typeof ExtrasEditor !== "undefined" && (
+        <div className="border-x border-b border-border p-6">
+          <ExtrasEditor
+            extras={extras || []}
+            onAdd={onAddExtra}
+            onUpdate={onUpdateExtra}
+            onRemove={onRemoveExtra}
+          />
         </div>
       )}
 
@@ -2040,6 +2066,3114 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
     // ════════════════════════════════════════════════════════
     // App shell — data, state, navigation
     // ════════════════════════════════════════════════════════
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // v3.1 — gap-closing components from agent swarm (2026-05-09)
+    // ════════════════════════════════════════════════════════════════════════════
+
+
+    // ─── from v3.1-picker-week-settings.txt ─────────────────────────────────────
+
+// =====================================================================
+// v3.1-picker-week-settings.txt
+// React function components — modal picker, week nav, settings, edit menu.
+// React 18 + Babel-in-browser. function components, no imports/exports.
+// Relies on globals: React, MP (from shared.js).
+// =====================================================================
+
+
+// ---- shared helpers (local to this file) -----------------------------
+
+// Title-case a meal-type slug (breakfast → Breakfast).
+function v31_mealLabel(t) {
+  if (!t) return "";
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Last-eaten freshness pill — returns null when status is "never".
+function v31_FreshnessPill({ le }) {
+  if (!le || le.status === "never") return null;
+  const map = {
+    recent:  { label: `${le.days}d ago`,  cls: "border-terra text-terra" },
+    fresh:   { label: "today",            cls: "border-terra text-terra" },
+    warming: { label: `${le.days}d ago`,  cls: "border-border text-warm" },
+    stale:   { label: `${le.days}d ago`,  cls: "border-border text-warm/60" },
+  };
+  const m = map[le.status];
+  if (!m) return null;
+  return (
+    <span className={`font-mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-1 border ${m.cls}`}>
+      {m.label}
+    </span>
+  );
+}
+
+// Vermilion play circle. Uses rounded-full (allowed exception).
+function v31_PlayDot({ size }) {
+  const s = size || 56;
+  return (
+    <span
+      className="absolute rounded-full bg-terra flex items-center justify-center"
+      style={{
+        width: s, height: s,
+        left: "50%", top: "50%",
+        transform: "translate(-50%,-50%)",
+      }}
+    >
+      <span style={{
+        width: 0, height: 0,
+        borderLeft: `${Math.round(s * 0.32)}px solid #FAFAF7`,
+        borderTop: `${Math.round(s * 0.22)}px solid transparent`,
+        borderBottom: `${Math.round(s * 0.22)}px solid transparent`,
+        marginLeft: 2,
+      }} />
+    </span>
+  );
+}
+
+// Stable photo for a recipe — youtube thumb → hero_image → null.
+function v31_recipePhoto(recipe, w) {
+  if (!recipe) return null;
+  const yt = recipe.youtube_url ? MP.youtubeThumb(recipe.youtube_url, w >= 800 ? "maxresdefault" : "hqdefault") : null;
+  if (yt) return yt;
+  if (recipe.hero_image) return recipe.hero_image;
+  return null;
+}
+
+
+// =====================================================================
+// 1. RecipePicker
+// Modal with search + meal-type + role filters, recently-used row,
+// and a responsive grid of recipe cards. Tap a card → onPick().
+// =====================================================================
+function RecipePicker({ recipes, mealRole, recentlyEatenIds, eatenLog, onPick, onClose }) {
+  const { useState, useMemo, useEffect } = React;
+  const [q, setQ] = useState("");
+  const [mealFilter, setMealFilter] = useState("all"); // all | breakfast | lunch | dinner
+  const [roleFilter, setRoleFilter] = useState(mealRole || "all"); // all | main | side | soup | salad | starter | one-pot
+  const today = (MP.date && MP.date.hkToday) ? MP.date.hkToday() : new Date().toISOString().slice(0, 10);
+
+  // Close on Escape.
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") onClose && onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const all = recipes || [];
+  const recentList = useMemo(() => {
+    const ids = recentlyEatenIds || [];
+    if (!ids.length) return [];
+    const byId = {};
+    for (const r of all) byId[r.id] = r;
+    return ids.map((id) => byId[id]).filter(Boolean).slice(0, 8);
+  }, [all, recentlyEatenIds]);
+
+  const filtered = useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    return all.filter((r) => {
+      // meal type filter
+      if (mealFilter !== "all") {
+        const mt = r.meal_type;
+        if (Array.isArray(mt)) { if (!mt.includes(mealFilter)) return false; }
+        else if (typeof mt === "string") { if (mt !== mealFilter) return false; }
+      }
+      // role filter
+      if (roleFilter !== "all") {
+        const ct = r.component_type || "main";
+        if (ct !== roleFilter) return false;
+      }
+      // search
+      if (ql) {
+        const hay = [r.name, r.cuisine, ...(r.tags || [])].join(" ").toLowerCase();
+        if (!hay.includes(ql)) return false;
+      }
+      return true;
+    });
+  }, [all, q, mealFilter, roleFilter]);
+
+  const mealSegments = [
+    { id: "all", label: "All" },
+    { id: "breakfast", label: "Breakfast" },
+    { id: "lunch", label: "Lunch" },
+    { id: "dinner", label: "Dinner" },
+  ];
+  const roleSegments = [
+    { id: "all", label: "All" },
+    { id: "main", label: "Main" },
+    { id: "side", label: "Side" },
+    { id: "soup", label: "Soup" },
+    { id: "salad", label: "Salad" },
+    { id: "starter", label: "Starter" },
+    { id: "one-pot", label: "One-pot" },
+  ];
+
+  function pick(r) {
+    onPick && onPick({ recipeId: r.id, role: (roleFilter !== "all" ? roleFilter : (r.component_type || "main")) });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center"
+      style={{ background: "rgba(26,26,26,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-cream w-full md:max-w-2xl md:w-full max-h-[92vh] flex flex-col border border-border"
+        style={{ minHeight: 340 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
+          <h2 className="font-display text-[28px] leading-none text-ink">Pick a recipe</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{ minHeight: 44, minWidth: 44 }}
+            className="w-11 h-11 flex items-center justify-center text-sage hover:text-terra border border-border"
+          >
+            ×
+          </button>
+        </div>
+
+        {/* Filter row */}
+        <div className="px-6 py-4 border-b border-border flex flex-col gap-3 shrink-0">
+          <input
+            type="text"
+            placeholder="Search recipes…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ minHeight: 44 }}
+            className="w-full bg-bg0 border border-border px-4 py-3 font-display text-[16px] text-ink placeholder:italic placeholder:text-sage focus:outline-none focus:border-terra"
+          />
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {mealSegments.map((s) => {
+              const active = mealFilter === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setMealFilter(s.id)}
+                  style={{ minHeight: 44 }}
+                  className={
+                    "shrink-0 font-mono text-[11px] uppercase tracking-[0.14em] px-4 py-2 border " +
+                    (active ? "border-terra text-terra bg-bg0" : "border-border text-warm bg-cream hover:bg-bg0")
+                  }
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {roleSegments.map((s) => {
+              const active = roleFilter === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setRoleFilter(s.id)}
+                  style={{ minHeight: 44 }}
+                  className={
+                    "shrink-0 font-mono text-[11px] uppercase tracking-[0.14em] px-4 py-2 border " +
+                    (active ? "border-ink text-ink bg-bg0" : "border-border text-warm bg-cream hover:bg-bg0")
+                  }
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+          {/* Recently used */}
+          {recentList.length > 0 && (
+            <div className="mb-6">
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-sage mb-3">Recently used</div>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {recentList.map((r) => {
+                  const photo = v31_recipePhoto(r, 320);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => pick(r)}
+                      style={{ width: 160 }}
+                      className="shrink-0 text-left bg-bg0 border border-border hover:border-terra"
+                    >
+                      <div className="relative w-full bg-sand" style={{ aspectRatio: "4/3" }}>
+                        {photo && <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                      </div>
+                      <div className="px-3 py-2">
+                        <div className="font-display text-[14px] leading-tight text-ink line-clamp-2">{r.name}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Recipe grid */}
+          {filtered.length === 0 ? (
+            <div className="font-display text-[15px] text-warm py-12 text-center">
+              No recipes match that filter.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filtered.map((r) => {
+                const photo = v31_recipePhoto(r, 600);
+                const le = MP.lastEaten(r.id, eatenLog || {}, today);
+                const cuisine = r.cuisine || "";
+                const time = r.cook_time_mins ? `${r.cook_time_mins} min` : "";
+                const mt = Array.isArray(r.meal_type) ? r.meal_type[0] : r.meal_type;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => pick(r)}
+                    style={{ minHeight: 44 }}
+                    className="text-left bg-bg0 border border-border hover:border-terra group"
+                  >
+                    <div className="relative w-full bg-sand" style={{ aspectRatio: "4/3" }}>
+                      {photo && <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                      <v31_PlayDot size={56} />
+                    </div>
+                    <div className="px-4 py-3">
+                      <div className="font-display text-[17px] leading-[1.2] text-ink mb-2 line-clamp-2">{r.name}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {cuisine && (
+                          <span className="font-mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-1 border border-border text-warm">
+                            {cuisine}
+                          </span>
+                        )}
+                        {time && (
+                          <span className="font-mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-1 border border-border text-warm">
+                            {time}
+                          </span>
+                        )}
+                        {mt && (
+                          <span className="font-mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-1 border border-border text-warm">
+                            {v31_mealLabel(mt)}
+                          </span>
+                        )}
+                        <v31_FreshnessPill le={le} />
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// =====================================================================
+// 2. WeekNavBar
+// Sticky horizontal bar — Prev / week label / Next, with jump-to-today.
+// =====================================================================
+function WeekNavBar({ weekStart, weekplan, onPrev, onNext, onJumpToToday }) {
+  const monday = MP.date.mondayOf(weekStart);
+  const sunday = MP.date.addDays(monday, 6);
+
+  // ISO week number, Mon-based.
+  function isoWeek(dateStr) {
+    if (MP.date.weekNumber) return MP.date.weekNumber(dateStr);
+    const d = MP.date.parse ? MP.date.parse(dateStr) : new Date(dateStr);
+    const tmp = new Date(d.getTime());
+    tmp.setHours(0, 0, 0, 0);
+    tmp.setDate(tmp.getDate() + 4 - ((tmp.getDay() + 6) % 7 + 1));
+    const y0 = new Date(tmp.getFullYear(), 0, 1);
+    return Math.ceil((((tmp - y0) / 86400000) + 1) / 7);
+  }
+
+  const wkNum = isoWeek(monday);
+  const mD = MP.date.parse ? MP.date.parse(monday) : new Date(monday);
+  const sD = MP.date.parse ? MP.date.parse(sunday) : new Date(sunday);
+  const months = (MP.i18n && MP.i18n.months && MP.i18n.months.en) || [
+    "January","February","March","April","May","June","July","August","September","October","November","December"
+  ];
+  const sameMonth = mD.getMonth() === sD.getMonth();
+  const range = sameMonth
+    ? `${mD.getDate()}–${sD.getDate()} ${months[sD.getMonth()].slice(0,3)}`
+    : `${mD.getDate()} ${months[mD.getMonth()].slice(0,3)} – ${sD.getDate()} ${months[sD.getMonth()].slice(0,3)}`;
+
+  return (
+    <div
+      className="sticky top-0 z-40 bg-cream border-b border-border px-4 md:px-6 py-3 flex items-center justify-between gap-3"
+    >
+      <button
+        type="button"
+        onClick={onPrev}
+        style={{ minHeight: 44 }}
+        className="bg-cream text-ink border border-ink text-[15px] font-medium px-5 py-3 hover:bg-bg0 active:bg-sand"
+      >
+        ← Prev
+      </button>
+
+      <div className="flex flex-col items-center text-center min-w-0">
+        <h2 className="font-display text-[20px] md:text-[24px] leading-none text-ink truncate">
+          Wk {wkNum} · {range}
+        </h2>
+        <button
+          type="button"
+          onClick={onJumpToToday}
+          className="font-mono text-[10px] uppercase tracking-[0.16em] text-sage hover:text-terra mt-1.5 border-b border-border pb-[2px]"
+        >
+          Jump to today
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onNext}
+        style={{ minHeight: 44 }}
+        className="bg-cream text-ink border border-ink text-[15px] font-medium px-5 py-3 hover:bg-bg0 active:bg-sand"
+      >
+        Next →
+      </button>
+    </div>
+  );
+}
+
+
+// =====================================================================
+// 3. SettingsPanel
+// Embedded form — Worker URL, token, health-check, save. Persists via
+// MP.api.setBase / setToken to localStorage.
+// =====================================================================
+function SettingsPanel({ initialBase, initialToken, onSaved }) {
+  const { useState } = React;
+  const [base, setBase] = useState(initialBase || (typeof localStorage !== "undefined" ? (localStorage.getItem("mpApiBase") || "") : ""));
+  const [tok,  setTok]  = useState(initialToken || (typeof localStorage !== "undefined" ? (localStorage.getItem("mpFaithToken") || "") : ""));
+  const [checking, setChecking] = useState(false);
+  const [status, setStatus] = useState(null); // { ok: bool, msg: string } | null
+
+  async function runHealth() {
+    setChecking(true);
+    setStatus(null);
+    try {
+      if (base) MP.api.setBase(base);
+      if (tok)  MP.api.setToken(tok);
+      const r = await MP.api.health();
+      setStatus({ ok: true, msg: typeof r === "object" ? JSON.stringify(r) : String(r) });
+    } catch (e) {
+      setStatus({ ok: false, msg: e && e.message ? e.message : String(e) });
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  function save() {
+    MP.api.setBase(base);
+    MP.api.setToken(tok);
+    onSaved && onSaved({ base, token: tok });
+  }
+
+  return (
+    <div className="flex flex-col gap-5 max-w-[560px]">
+      <div className="font-mono uppercase tracking-[0.16em] text-[11px] text-sage">
+        Connection · Worker + token
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="font-display text-[16px] text-ink" htmlFor="mp-base-url">Worker URL</label>
+        <input
+          id="mp-base-url"
+          type="text"
+          value={base}
+          onChange={(e) => setBase(e.target.value)}
+          placeholder="https://meal-planner-api.<you>.workers.dev"
+          style={{ minHeight: 44 }}
+          className="w-full bg-bg0 border border-border px-4 py-3 font-mono text-[14px] text-ink placeholder:italic placeholder:text-sage focus:outline-none focus:border-terra"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="font-display text-[16px] text-ink" htmlFor="mp-token">Access token</label>
+        <input
+          id="mp-token"
+          type="password"
+          value={tok}
+          onChange={(e) => setTok(e.target.value)}
+          placeholder="••••••••"
+          style={{ minHeight: 44 }}
+          className="w-full bg-bg0 border border-border px-4 py-3 font-mono text-[14px] text-ink placeholder:italic placeholder:text-sage focus:outline-none focus:border-terra"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-3 pt-1">
+        <button
+          type="button"
+          onClick={runHealth}
+          disabled={checking}
+          style={{ minHeight: 44 }}
+          className="bg-cream text-ink border border-ink text-[15px] font-medium px-5 py-3 hover:bg-bg0 active:bg-sand disabled:opacity-50"
+        >
+          {checking ? "Checking…" : "Health check"}
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          style={{ minHeight: 44 }}
+          className="bg-terra text-bg0 text-[15px] font-medium px-5 py-3 hover:bg-terra/90 active:bg-terra/80"
+        >
+          Save
+        </button>
+      </div>
+
+      {status && (
+        <div
+          className={
+            "px-4 py-3 border font-mono text-[12px] " +
+            (status.ok
+              ? "border-terra text-terra bg-accent-soft"
+              : "border-border text-warm bg-bg0")
+          }
+        >
+          {status.ok ? "✓ Connected · " : "✗ "}{status.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// =====================================================================
+// 4. MealEditMenu
+// Inline overlay menu shown when a meal tile in Week view is tapped.
+// Sits below the tile. Add / remove / swap entries, set serve time.
+// =====================================================================
+function MealEditMenu({ existing, mealType, dayKey, recipes, onAdd, onRemove, onSwap, onSetServeTime, onClose }) {
+  const { useState, useEffect, useMemo, useRef } = React;
+  const items = Array.isArray(existing) ? existing : [];
+  const byId = useMemo(() => {
+    const o = {};
+    for (const r of recipes || []) o[r.id] = r;
+    return o;
+  }, [recipes]);
+
+  // Pre-fill with the first entry's serve_time if any.
+  const initialTime = (items[0] && items[0].serve_time) || "";
+  const [serveTime, setServeTime] = useState(initialTime);
+  const wrapRef = useRef(null);
+
+  // Close on Escape and on outside click.
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") onClose && onClose(); }
+    function onDoc(e) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) onClose && onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    // Defer outside-click binding so the original click that opened the menu
+    // doesn't immediately close it.
+    const t = setTimeout(() => document.addEventListener("mousedown", onDoc), 0);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(t);
+      document.removeEventListener("mousedown", onDoc);
+    };
+  }, [onClose]);
+
+  function commitTime() {
+    if (serveTime && /^\d{2}:\d{2}$/.test(serveTime)) {
+      onSetServeTime && onSetServeTime(serveTime);
+    }
+  }
+
+  return (
+    <div
+      ref={wrapRef}
+      className="absolute left-0 right-0 z-30 mt-1 bg-cream border border-ink shadow-lg"
+      style={{ top: "100%" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-sage">
+          {v31_mealLabel(mealType)}{dayKey ? " · " + dayKey : ""}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close menu"
+          style={{ minHeight: 44, minWidth: 44 }}
+          className="w-11 h-11 flex items-center justify-center text-sage hover:text-terra"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Existing entries */}
+      {items.length > 0 && (
+        <div className="flex flex-col">
+          {items.map((entry, i) => {
+            const r = byId[entry.recipeId];
+            const role = (entry.role || "main").toLowerCase();
+            const photo = r ? v31_recipePhoto(r, 200) : null;
+            return (
+              <div
+                key={(entry.recipeId || "x") + ":" + i}
+                className="grid grid-cols-[44px_auto_1fr_auto_auto] gap-3 items-center px-4 py-3 border-b border-border last:border-b-0"
+              >
+                <div className="relative w-11 h-11 bg-sand">
+                  {photo && <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                </div>
+                <span className={
+                  "font-mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-1 border " +
+                  (role === "main" ? "border-terra text-terra" : "border-border text-warm")
+                }>
+                  {role}
+                </span>
+                <div className="font-display text-[15px] leading-tight text-ink truncate">
+                  {r ? r.name : entry.recipeId}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSwap && onSwap(entry)}
+                  style={{ minHeight: 44 }}
+                  className="font-mono text-[10px] uppercase tracking-[0.16em] px-3 py-2 border border-border text-ink hover:bg-bg0"
+                >
+                  Swap
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemove && onRemove(entry)}
+                  aria-label="Remove"
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className="w-11 h-11 flex items-center justify-center text-sage hover:text-terra border border-border"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add button */}
+      <button
+        type="button"
+        onClick={() => onAdd && onAdd()}
+        style={{ minHeight: 44 }}
+        className="w-full text-left px-4 py-4 border-b border-border font-display text-[16px] text-terra hover:bg-bg0"
+      >
+        + Add recipe
+      </button>
+
+      {/* Serve time */}
+      <div className="px-4 py-4 flex items-center gap-3 flex-wrap">
+        <label className="font-mono text-[10px] uppercase tracking-[0.16em] text-sage" htmlFor="mp-serve-time">
+          Set serve time
+        </label>
+        <input
+          id="mp-serve-time"
+          type="time"
+          value={serveTime}
+          onChange={(e) => setServeTime(e.target.value)}
+          style={{ minHeight: 44 }}
+          className="bg-bg0 border border-border px-3 py-2 font-mono text-[14px] text-ink focus:outline-none focus:border-terra"
+        />
+        <button
+          type="button"
+          onClick={commitTime}
+          style={{ minHeight: 44 }}
+          className="bg-terra text-bg0 text-[15px] font-medium px-5 py-3 hover:bg-terra/90 active:bg-terra/80"
+        >
+          Set
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+
+    // ─── from v3.1-recipe-form.txt ─────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3.1-recipe-form.txt
+// React 18 + Babel-in-browser. function components. No imports/exports.
+// Tailwind tokens: cream sand ink terra sage warm bg0 border bark.
+// Fonts: font-display (Source Serif 4), default Inter 16 px, font-mono.
+// ZERO border-radius (except rounded-full). Inputs ≥ 44 px tall.
+// Primary = vermilion (terra). Secondary = outlined ink. Tertiary = text-only terra.
+//
+// Components in this file:
+//   1. RecipeForm({ recipe, onSave, onDelete, onClose })
+//   2. YoutubeFieldWithPreview({ url, onChange })
+//   3. DependenciesEditor({ deps, onChange })
+//   4. LangTabs({ active, onChange })
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local helpers — top-level, no imports
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Slugify a recipe name into a stable ID.
+function rfSlug(s) {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// Curated unit list grouped by family. The Ingredients editor surfaces these
+// in a single <select>; family is derived via MP.units.unitFamily(unit).
+const RF_UNITS = [
+  // weight
+  "g", "kg", "oz", "lb",
+  // volume
+  "ml", "l", "tsp", "tbsp", "cup",
+  // count
+  "whole", "cloves", "sprigs", "bunches", "slices", "pieces",
+];
+
+const RF_CATEGORIES = ["meat", "produce", "dairy", "pantry", "bakery", "frozen", "other"];
+const RF_SOURCES    = ["wet-market", "supermarket", "hktvmall", "other"];
+const RF_SCALES     = ["linear", "tapered", "fixed"];
+
+// Blank ingredient + step shapes — kept in sync with index.html and the worker.
+const RF_BLANK_ING = {
+  item: "", name_tl: "", name_il: "",
+  amount: 1, unit: "g",
+  category: "produce", source: "wet-market", scales: "linear",
+};
+const RF_BLANK_STEP = { instruction: "", instruction_tl: "", instruction_il: "" };
+
+// Read the unit family safely. Falls back to "count" if MP.units is missing.
+function rfUnitFamily(unit) {
+  if (window.MP && MP.units && typeof MP.units.unitFamily === "function") {
+    return MP.units.unitFamily(unit);
+  }
+  return "count";
+}
+
+// Shared input + label classes — used across all form fields. 44 px min height
+// is enforced inline because Tailwind doesn't have a native min-h-44.
+const RF_INPUT =
+  "w-full bg-cream border border-border text-ink text-base px-3 py-2.5 " +
+  "focus:outline-none focus:border-ink placeholder:text-warm/60";
+const RF_LABEL =
+  "block font-mono uppercase tracking-[0.14em] text-[10px] text-warm mb-1.5";
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 4) LangTabs
+//
+// Three-tab segmented control for EN / TL / IL. Used to focus the form on a
+// single language. `active === "all"` means show every language field.
+//
+// Props:
+//   active   — "all" | "en" | "tl" | "il"
+//   onChange — (next) => void
+// ═════════════════════════════════════════════════════════════════════════════
+
+function LangTabs({ active, onChange }) {
+  const tabs = [
+    { k: "all", label: "All" },
+    { k: "en",  label: "EN" },
+    { k: "tl",  label: "TL" },
+    { k: "il",  label: "IL" },
+  ];
+  return (
+    <div className="flex border border-border w-fit">
+      {tabs.map((t) => {
+        const on = active === t.k;
+        return (
+          <button
+            key={t.k}
+            type="button"
+            onClick={() => onChange && onChange(t.k)}
+            style={{ minHeight: 44, minWidth: 44 }}
+            className={`font-mono uppercase tracking-[0.16em] text-[10px] px-4 py-2 border-r border-border last:border-r-0 ${on ? "bg-terra text-cream" : "bg-cream text-ink hover:bg-bg0"}`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2) YoutubeFieldWithPreview
+//
+// URL input + 4:3 thumbnail preview. Uses MP.youtubeId / MP.youtubeThumb if
+// available. Shows a friendly placeholder until a valid YouTube URL is pasted.
+//
+// Props:
+//   url      — string
+//   onChange — (next) => void
+// ═════════════════════════════════════════════════════════════════════════════
+
+function YoutubeFieldWithPreview({ url, onChange }) {
+  const vid = (window.MP && MP.youtubeId) ? MP.youtubeId(url || "") : null;
+  const thumb = vid && MP.youtubeThumb ? MP.youtubeThumb(url, "maxresdefault") : null;
+
+  // onError chain for thumb: maxres → hq → mq → hide.
+  function thumbErr(e) {
+    const s = e.target.src;
+    if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+    if (s.includes("hqdefault"))     { e.target.src = s.replace("hqdefault", "mqdefault"); return; }
+    e.target.style.display = "none";
+  }
+
+  return (
+    <div>
+      <label className={RF_LABEL}>YouTube URL</label>
+      <input
+        value={url || ""}
+        onChange={(e) => onChange && onChange(e.target.value)}
+        placeholder="https://youtube.com/watch?v=…"
+        style={{ minHeight: 44 }}
+        className={RF_INPUT}
+      />
+      <div
+        className="mt-2 border border-border bg-bg0 relative overflow-hidden"
+        style={{ aspectRatio: "4 / 3" }}
+      >
+        {vid && thumb ? (
+          <>
+            <img
+              src={thumb}
+              alt="YouTube thumbnail"
+              className="absolute inset-0 w-full h-full object-cover block"
+              onError={thumbErr}
+            />
+            <span className="absolute bottom-2 left-2 font-mono uppercase tracking-[0.14em] text-[10px] bg-ink/80 text-cream px-2 py-1">
+              {vid}
+            </span>
+          </>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center font-mono uppercase tracking-[0.16em] text-[11px] text-warm">
+            Paste a YouTube URL
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3) DependenciesEditor
+//
+// Repeater for pre-cook dependencies (defrost / marinate). Each row carries a
+// type and an `hours_before` number. Emits the full array on every change.
+//
+// Props:
+//   deps     — Array<{ type: "defrost" | "marinate", hours_before: number }>
+//   onChange — (nextDeps) => void
+// ═════════════════════════════════════════════════════════════════════════════
+
+function DependenciesEditor({ deps, onChange }) {
+  const list = deps || [];
+
+  function update(i, patch) {
+    const next = list.map((d, j) => (j === i ? Object.assign({}, d, patch) : d));
+    onChange && onChange(next);
+  }
+  function remove(i) {
+    onChange && onChange(list.filter((_, j) => j !== i));
+  }
+  function add() {
+    onChange && onChange(list.concat([{ type: "marinate", hours_before: 2 }]));
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <label className={RF_LABEL + " mb-0"}>Dependencies</label>
+        <button
+          type="button"
+          onClick={add}
+          style={{ minHeight: 44 }}
+          className="font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-border text-ink bg-cream hover:bg-bg0"
+        >
+          + Add
+        </button>
+      </div>
+
+      {list.length === 0 && (
+        <p className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm/70 mb-2">
+          None — nothing to defrost or marinate
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {list.map((d, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <select
+              value={d.type}
+              onChange={(e) => update(i, { type: e.target.value })}
+              style={{ minHeight: 44 }}
+              className={RF_INPUT + " flex-1"}
+            >
+              <option value="marinate">Marinate</option>
+              <option value="defrost">Defrost</option>
+            </select>
+            <input
+              type="number"
+              min="0.5"
+              step="0.5"
+              value={d.hours_before}
+              onChange={(e) => update(i, { hours_before: Number(e.target.value) })}
+              style={{ minHeight: 44 }}
+              className={RF_INPUT + " w-24 tabular-nums"}
+            />
+            <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm whitespace-nowrap">
+              hrs before
+            </span>
+            <button
+              type="button"
+              onClick={() => remove(i)}
+              aria-label="Remove dependency"
+              style={{ minHeight: 44, minWidth: 44 }}
+              className="text-warm hover:text-terra text-xl"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1) RecipeForm
+//
+// Full-screen modal editor. Two-column on lg+, stacked on mobile. Cream
+// background, hairline borders, no rounded corners except play buttons.
+//
+// Save flow:
+//   - Validates: title required, ≥ 1 ingredient with item, ≥ 1 step with text.
+//   - Coerces numerics, slugs missing IDs, drops empty rows.
+//   - Calls MP.api.upsertRecipe(id, body); on success → onSave(saved).
+//
+// Props:
+//   recipe   — existing recipe object, or null/undefined for "New recipe"
+//   onSave   — (saved) => void
+//   onDelete — () => void                 only fired in edit mode
+//   onClose  — () => void                 always available (X + Cancel)
+// ═════════════════════════════════════════════════════════════════════════════
+
+function RecipeForm({ recipe, onSave, onDelete, onClose }) {
+  const isNew = !recipe;
+
+  // Initial form state — normalise so renders are stable.
+  const [form, setForm] = React.useState(() => {
+    if (recipe) {
+      return Object.assign({}, recipe, {
+        ingredients: (recipe.ingredients && recipe.ingredients.length)
+          ? recipe.ingredients.map((i) => Object.assign({}, RF_BLANK_ING, i))
+          : [Object.assign({}, RF_BLANK_ING)],
+        steps: (recipe.steps && recipe.steps.length)
+          ? recipe.steps.map((s) => Object.assign({}, RF_BLANK_STEP, s))
+          : [Object.assign({}, RF_BLANK_STEP)],
+        dependencies: recipe.dependencies || [],
+        meal_type: recipe.meal_type || ["dinner"],
+        tags: recipe.tags || [],
+      });
+    }
+    return {
+      id: "", name: "", name_tl: "", name_il: "",
+      cuisine: "", meal_type: ["dinner"],
+      tags: [],
+      serves_base: 4,
+      active_time_mins: 20, prep_time_mins: 15, cook_time_mins: 30,
+      youtube_url: "", hero_image: "",
+      ingredients: [Object.assign({}, RF_BLANK_ING)],
+      steps: [Object.assign({}, RF_BLANK_STEP)],
+      dependencies: [],
+    };
+  });
+
+  const [lang, setLang] = React.useState("en");          // LangTabs scope
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const [confirmDel, setConfirmDel] = React.useState(false);
+
+  // Tags as a comma-string buffer — keeps cursor stable while typing.
+  const [tagsBuffer, setTagsBuffer] = React.useState(() => (form.tags || []).join(", "));
+
+  // ── setters ────────────────────────────────────────────────────────────────
+  function setF(k, v) { setForm((f) => Object.assign({}, f, { [k]: v })); }
+
+  function setIng(i, patch) {
+    setForm((f) => {
+      const next = f.ingredients.slice();
+      next[i] = Object.assign({}, next[i], patch);
+      return Object.assign({}, f, { ingredients: next });
+    });
+  }
+  function addIng() {
+    setForm((f) => Object.assign({}, f, { ingredients: f.ingredients.concat([Object.assign({}, RF_BLANK_ING)]) }));
+  }
+  function removeIng(i) {
+    setForm((f) => Object.assign({}, f, { ingredients: f.ingredients.filter((_, j) => j !== i) }));
+  }
+
+  function setStep(i, patch) {
+    setForm((f) => {
+      const next = f.steps.slice();
+      next[i] = Object.assign({}, next[i], patch);
+      return Object.assign({}, f, { steps: next });
+    });
+  }
+  function addStep() {
+    setForm((f) => Object.assign({}, f, { steps: f.steps.concat([Object.assign({}, RF_BLANK_STEP)]) }));
+  }
+  function removeStep(i) {
+    setForm((f) => Object.assign({}, f, { steps: f.steps.filter((_, j) => j !== i) }));
+  }
+
+  // ── validation + save ──────────────────────────────────────────────────────
+  function validate() {
+    if (!form.name || !form.name.trim()) return "Title is required.";
+    const realIngs = (form.ingredients || []).filter((i) => i.item && i.item.trim());
+    if (realIngs.length === 0) return "Add at least one ingredient.";
+    const realSteps = (form.steps || []).filter((s) => s.instruction && s.instruction.trim());
+    if (realSteps.length === 0) return "Add at least one step.";
+    return "";
+  }
+
+  async function save() {
+    const v = validate();
+    if (v) { setErr(v); return; }
+    if (!window.MP || !MP.api || typeof MP.api.upsertRecipe !== "function") {
+      setErr("MP.api.upsertRecipe is not available.");
+      return;
+    }
+    setErr(""); setBusy(true);
+    try {
+      const id = (form.id && form.id.trim()) || rfSlug(form.name) || ("recipe-" + Date.now());
+      const tags = tagsBuffer
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const payload = Object.assign({}, form, {
+        id,
+        tags,
+        serves_base: Number(form.serves_base) || 4,
+        active_time_mins: Number(form.active_time_mins) || 0,
+        prep_time_mins:   Number(form.prep_time_mins)   || 0,
+        cook_time_mins:   Number(form.cook_time_mins)   || 0,
+        ingredients: (form.ingredients || [])
+          .filter((i) => i.item && i.item.trim())
+          .map((i) => Object.assign({}, i, { amount: Number(i.amount) || 0 })),
+        steps: (form.steps || [])
+          .filter((s) => s.instruction && s.instruction.trim())
+          .map((s, idx) => Object.assign({}, s, { step: idx + 1 })),
+        dependencies: (form.dependencies || []).map((d) => ({
+          type: d.type,
+          hours_before: Number(d.hours_before) || 0,
+        })),
+      });
+      const saved = await MP.api.upsertRecipe(id, payload);
+      onSave && onSave(saved || payload);
+    } catch (e) {
+      setErr((e && e.message) || "Save failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function del() {
+    if (!form.id) { onDelete && onDelete(); return; }
+    setBusy(true);
+    try {
+      if (window.MP && MP.api && typeof MP.api.deleteRecipe === "function") {
+        await MP.api.deleteRecipe(form.id);
+      }
+      onDelete && onDelete();
+    } catch (e) {
+      setErr((e && e.message) || "Delete failed.");
+      setBusy(false);
+    }
+  }
+
+  // ── render helpers ─────────────────────────────────────────────────────────
+  const showEN = lang === "all" || lang === "en";
+  const showTL = lang === "all" || lang === "tl";
+  const showIL = lang === "all" || lang === "il";
+
+  // Stop the overlay-click handler when clicking inside the panel.
+  function stop(e) { e.stopPropagation(); }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/80 flex items-stretch md:items-start justify-center overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <div
+        onClick={stop}
+        className="relative w-full max-w-4xl bg-cream text-ink border border-border my-0 md:my-8 mx-0 md:mx-4"
+      >
+        {/* ── header bar ─────────────────────────────────────────────────── */}
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-4 bg-cream border-b border-border px-6 md:px-9 py-4">
+          <div className="min-w-0">
+            <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-1">
+              {isNew ? "New recipe" : "Edit recipe"}
+            </div>
+            <h2 className="font-display text-[24px] md:text-[28px] leading-[1.1] truncate">
+              {form.name || (isNew ? "Untitled" : "Edit recipe")}
+            </h2>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <LangTabs active={lang} onChange={setLang} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{ minHeight: 44, minWidth: 44 }}
+              className="border border-border text-ink hover:bg-bg0 text-2xl flex items-center justify-center"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* ── body — two-column on lg ────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:gap-0">
+          {/* ── LEFT: metadata ─────────────────────────────────────────── */}
+          <div className="p-6 md:p-9 space-y-6 lg:border-r lg:border-border">
+
+            {/* Title block */}
+            <div className="space-y-4">
+              {showEN && (
+                <div>
+                  <label className={RF_LABEL}>Title (English) <span className="text-terra">*</span></label>
+                  <input
+                    value={form.name || ""}
+                    onChange={(e) => {
+                      setF("name", e.target.value);
+                      if (isNew) setF("id", rfSlug(e.target.value));
+                    }}
+                    placeholder="e.g. Chicken adobo"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT + " font-display text-[20px]"}
+                  />
+                </div>
+              )}
+              {showTL && (
+                <div>
+                  <label className={RF_LABEL}>Title — Tagalog</label>
+                  <input
+                    value={form.name_tl || ""}
+                    onChange={(e) => setF("name_tl", e.target.value)}
+                    placeholder="Pamagat sa Tagalog"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT}
+                  />
+                </div>
+              )}
+              {showIL && (
+                <div>
+                  <label className={RF_LABEL}>Title — Ilocano</label>
+                  <input
+                    value={form.name_il || ""}
+                    onChange={(e) => setF("name_il", e.target.value)}
+                    placeholder="Pammagan iti Ilocano"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Cuisine + tags */}
+            {showEN && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={RF_LABEL}>Cuisine</label>
+                  <input
+                    value={form.cuisine || ""}
+                    onChange={(e) => setF("cuisine", e.target.value)}
+                    list="rf-cuisine-list"
+                    placeholder="Filipino"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT}
+                  />
+                  <datalist id="rf-cuisine-list">
+                    {["Filipino","Chinese","Western","Italian","Thai","Japanese","Indian","Korean","Middle Eastern"].map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={RF_LABEL}>Tags (comma-separated)</label>
+                  <input
+                    value={tagsBuffer}
+                    onChange={(e) => setTagsBuffer(e.target.value)}
+                    placeholder="quick, family-favourite"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Meal type */}
+            {showEN && (
+              <div>
+                <label className={RF_LABEL}>Meal type</label>
+                <div className="flex flex-wrap gap-2">
+                  {["breakfast", "lunch", "dinner"].map((m) => {
+                    const on = (form.meal_type || []).includes(m);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setF("meal_type",
+                          on
+                            ? (form.meal_type || []).filter((x) => x !== m)
+                            : (form.meal_type || []).concat([m])
+                        )}
+                        style={{ minHeight: 44 }}
+                        className={`font-mono uppercase tracking-[0.16em] text-[10px] px-4 py-2 border ${on ? "bg-terra text-cream border-terra" : "bg-cream text-ink border-border hover:bg-bg0"}`}
+                      >
+                        {m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Serves + times */}
+            {showEN && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className={RF_LABEL}>Serves base</label>
+                  <input
+                    type="number" min="1" max="20"
+                    value={form.serves_base}
+                    onChange={(e) => setF("serves_base", e.target.value)}
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT + " tabular-nums"}
+                  />
+                </div>
+                <div>
+                  <label className={RF_LABEL}>Active (min)</label>
+                  <input
+                    type="number" min="0"
+                    value={form.active_time_mins}
+                    onChange={(e) => setF("active_time_mins", e.target.value)}
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT + " tabular-nums"}
+                  />
+                </div>
+                <div>
+                  <label className={RF_LABEL}>Prep (min)</label>
+                  <input
+                    type="number" min="0"
+                    value={form.prep_time_mins}
+                    onChange={(e) => setF("prep_time_mins", e.target.value)}
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT + " tabular-nums"}
+                  />
+                </div>
+                <div>
+                  <label className={RF_LABEL}>Cook (min)</label>
+                  <input
+                    type="number" min="0"
+                    value={form.cook_time_mins}
+                    onChange={(e) => setF("cook_time_mins", e.target.value)}
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT + " tabular-nums"}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* YouTube + hero */}
+            {showEN && (
+              <div className="space-y-4">
+                <YoutubeFieldWithPreview
+                  url={form.youtube_url || ""}
+                  onChange={(v) => setF("youtube_url", v)}
+                />
+                <div>
+                  <label className={RF_LABEL}>Hero image URL (fallback)</label>
+                  <input
+                    value={form.hero_image || ""}
+                    onChange={(e) => setF("hero_image", e.target.value)}
+                    placeholder="https://…"
+                    style={{ minHeight: 44 }}
+                    className={RF_INPUT}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Dependencies */}
+            {showEN && (
+              <DependenciesEditor
+                deps={form.dependencies || []}
+                onChange={(next) => setF("dependencies", next)}
+              />
+            )}
+          </div>
+
+          {/* ── RIGHT: ingredients + steps ─────────────────────────────── */}
+          <div className="p-6 md:p-9 space-y-8 border-t border-border lg:border-t-0">
+
+            {/* Ingredients */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display text-[20px] leading-tight">Ingredients</h3>
+                <button
+                  type="button"
+                  onClick={addIng}
+                  style={{ minHeight: 44 }}
+                  className="font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-border bg-cream text-ink hover:bg-bg0"
+                >
+                  + Add row
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {(form.ingredients || []).map((ing, i) => {
+                  const fam = rfUnitFamily(ing.unit);
+                  return (
+                    <div key={i} className="border border-border bg-cream p-3 space-y-2">
+                      {/* row 1: item + remove */}
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 space-y-2">
+                          {showEN && (
+                            <input
+                              value={ing.item || ""}
+                              onChange={(e) => setIng(i, { item: e.target.value })}
+                              placeholder="Item — e.g. chicken thigh"
+                              style={{ minHeight: 44 }}
+                              className={RF_INPUT}
+                            />
+                          )}
+                          {showTL && (
+                            <input
+                              value={ing.name_tl || ""}
+                              onChange={(e) => setIng(i, { name_tl: e.target.value })}
+                              placeholder="Tagalog"
+                              style={{ minHeight: 44 }}
+                              className={RF_INPUT}
+                            />
+                          )}
+                          {showIL && (
+                            <input
+                              value={ing.name_il || ""}
+                              onChange={(e) => setIng(i, { name_il: e.target.value })}
+                              placeholder="Ilocano"
+                              style={{ minHeight: 44 }}
+                              className={RF_INPUT}
+                            />
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeIng(i)}
+                          aria-label="Remove ingredient"
+                          style={{ minHeight: 44, minWidth: 44 }}
+                          className="text-warm hover:text-terra text-xl flex items-center justify-center"
+                        >
+                          ×
+                        </button>
+                      </div>
+
+                      {/* row 2: amount + unit + family pill (only when EN visible) */}
+                      {showEN && (
+                        <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                          <input
+                            type="number"
+                            min="0" step="0.1"
+                            value={ing.amount}
+                            onChange={(e) => setIng(i, { amount: e.target.value })}
+                            placeholder="Amount"
+                            style={{ minHeight: 44 }}
+                            className={RF_INPUT + " tabular-nums"}
+                          />
+                          <select
+                            value={ing.unit}
+                            onChange={(e) => setIng(i, { unit: e.target.value })}
+                            style={{ minHeight: 44 }}
+                            className={RF_INPUT}
+                          >
+                            {RF_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                          <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm px-2 whitespace-nowrap">
+                            {fam}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* row 3: category + source + scales */}
+                      {showEN && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <select
+                            value={ing.category || "produce"}
+                            onChange={(e) => setIng(i, { category: e.target.value })}
+                            style={{ minHeight: 44 }}
+                            className={RF_INPUT}
+                          >
+                            {RF_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <select
+                            value={ing.source || "wet-market"}
+                            onChange={(e) => setIng(i, { source: e.target.value })}
+                            style={{ minHeight: 44 }}
+                            className={RF_INPUT}
+                          >
+                            {RF_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          <select
+                            value={ing.scales || "linear"}
+                            onChange={(e) => setIng(i, { scales: e.target.value })}
+                            style={{ minHeight: 44 }}
+                            className={RF_INPUT}
+                          >
+                            {RF_SCALES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Steps */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-display text-[20px] leading-tight">Steps</h3>
+                <button
+                  type="button"
+                  onClick={addStep}
+                  style={{ minHeight: 44 }}
+                  className="font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-border bg-cream text-ink hover:bg-bg0"
+                >
+                  + Add step
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {(form.steps || []).map((s, i) => (
+                  <div key={i} className="flex gap-3 border border-border bg-cream p-3">
+                    <span className="font-display text-[28px] leading-none text-terra w-8 flex-shrink-0">
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      {showEN && (
+                        <textarea
+                          rows={2}
+                          value={s.instruction || ""}
+                          onChange={(e) => setStep(i, { instruction: e.target.value })}
+                          placeholder="Instruction (English)…"
+                          className={RF_INPUT + " resize-y"}
+                          style={{ minHeight: 44 }}
+                        />
+                      )}
+                      {showTL && (
+                        <textarea
+                          rows={2}
+                          value={s.instruction_tl || ""}
+                          onChange={(e) => setStep(i, { instruction_tl: e.target.value })}
+                          placeholder="Tagalog…"
+                          className={RF_INPUT + " resize-y"}
+                          style={{ minHeight: 44 }}
+                        />
+                      )}
+                      {showIL && (
+                        <textarea
+                          rows={2}
+                          value={s.instruction_il || ""}
+                          onChange={(e) => setStep(i, { instruction_il: e.target.value })}
+                          placeholder="Ilocano…"
+                          className={RF_INPUT + " resize-y"}
+                          style={{ minHeight: 44 }}
+                        />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeStep(i)}
+                      aria-label="Remove step"
+                      style={{ minHeight: 44, minWidth: 44 }}
+                      className="text-warm hover:text-terra text-xl flex items-start justify-center pt-1"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        {/* ── footer bar ─────────────────────────────────────────────────── */}
+        <div className="sticky bottom-0 bg-cream border-t border-border px-6 md:px-9 py-4 flex flex-wrap items-center gap-3">
+          {err && (
+            <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-terra mr-auto">
+              {err}
+            </span>
+          )}
+
+          {/* Tertiary: Cancel */}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{ minHeight: 44 }}
+            className="font-mono uppercase tracking-[0.16em] text-[10px] px-4 py-2 text-terra hover:text-ink disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          {/* Secondary: Delete (edit mode only) */}
+          {!isNew && !confirmDel && (
+            <button
+              type="button"
+              onClick={() => setConfirmDel(true)}
+              disabled={busy}
+              style={{ minHeight: 44 }}
+              className="font-mono uppercase tracking-[0.16em] text-[10px] px-4 py-2 border border-ink text-ink bg-cream hover:bg-bg0 disabled:opacity-50"
+            >
+              Delete
+            </button>
+          )}
+          {!isNew && confirmDel && (
+            <div className="flex items-center gap-2">
+              <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-terra">
+                Delete {form.name}?
+              </span>
+              <button
+                type="button"
+                onClick={del}
+                disabled={busy}
+                style={{ minHeight: 44 }}
+                className="font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 border border-terra text-terra bg-cream hover:bg-terra hover:text-cream disabled:opacity-50"
+              >
+                Yes, delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDel(false)}
+                disabled={busy}
+                style={{ minHeight: 44 }}
+                className="font-mono uppercase tracking-[0.16em] text-[10px] px-3 py-2 text-warm hover:text-ink disabled:opacity-50"
+              >
+                Keep
+              </button>
+            </div>
+          )}
+
+          {/* Primary: Save */}
+          <button
+            type="button"
+            onClick={save}
+            disabled={busy || !form.name || !form.name.trim()}
+            style={{ minHeight: 44 }}
+            className="ml-auto bg-terra text-cream font-mono uppercase tracking-[0.16em] text-xs px-5 py-3 hover:bg-ink transition disabled:opacity-50"
+          >
+            {busy ? "Saving…" : isNew ? "Create recipe" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+    // ─── from v3.1-pantry-shopping.txt ─────────────────────────────────────
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.1 — Pantry / Shopping interactivity
+//
+// Components:
+//   1. PantryToggle          — tap-to-toggle "on hand" pills
+//   2. ItemSourceMenu        — click source pill → dropdown to reassign
+//   3. ExtrasEditor          — non-recipe items add/edit/remove
+//   4. ShoppingByStore       — full By-Store view (replaces stub)
+//   5. ShoppingByRecipe      — full By-Recipe view (replaces stub)
+//   6. HktvLink              — compact deep-link to HKTVmall search
+//   7. WhatsAppShareButton   — formatted text share for one source
+//
+// All React 18 + Babel, no imports. Top-level globals. Tailwind tokens only.
+// Buttons: primary vermilion (bg-terra text-bg0); secondary (bg-cream text-ink border border-ink).
+// Touch targets ≥ 44px.
+// ═════════════════════════════════════════════════════════════════════════════
+
+
+// ─── shared local helpers (kept here so file is self-contained) ──────────────
+// In the host index.html, sourcePillMeta / formatQty / dayShort / pickRecipeThumb
+// already exist — these wrappers fall through to those globals when present.
+const _sourcePillMeta = (typeof sourcePillMeta === "function")
+  ? sourcePillMeta
+  : function (source) {
+      switch (source) {
+        case "wet-market": case "market":      return { label: "Wet market", cls: "bg-terra text-cream" };
+        case "fusion": case "marketplace": case "supermarket":
+                                                return { label: "Fusion",     cls: "bg-sand text-ink" };
+        case "hktv": case "hktvmall":          return { label: "HKTVmall",   cls: "bg-bg0 text-ink" };
+        case "pantry": case "on-hand":         return { label: "On hand",    cls: "bg-cream text-warm" };
+        default:                                return { label: (source || "Other").toString(), cls: "bg-bg0 text-warm" };
+      }
+    };
+const _formatQty = (typeof formatQty === "function")
+  ? formatQty
+  : function (amount, unit) {
+      if (amount === null || amount === undefined || amount === "") return unit || "—";
+      if (!unit || unit === "count" || unit === "ea") return `${amount}`;
+      return `${Number(Number(amount).toFixed(2))} ${unit}`;
+    };
+const _dayShort = (typeof dayShort === "function")
+  ? dayShort
+  : function (iso) {
+      const d = new Date(iso + "T00:00:00");
+      return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+    };
+
+// canonical source vocabulary used across these components.
+// `MP.buildShoppingList` returns groups keyed by ingredient.source values seen in seed data:
+// "wet-market" | "supermarket" | "hktvmall" | "other". UI labels via SOURCE_LABELS.
+const SOURCE_ORDER = ["wet-market", "supermarket", "hktvmall", "other"];
+const SOURCE_LABELS = {
+  "wet-market": "🥬 Wet market",
+  "supermarket": "🛒 Fusion / Marketplace",
+  "hktvmall":   "📦 HKTVmall",
+  "other":      "On hand / other",
+};
+const CATEGORY_LABELS = {
+  meat:    "Meat & Seafood",
+  produce: "Vegetables & Fruit",
+  dairy:   "Dairy & Eggs",
+  pantry:  "Pantry & Dry Goods",
+  bakery:  "Bread & Bakery",
+  frozen:  "Frozen",
+  other:   "Other",
+};
+// stable normalize → matches MP.normalizeIngredientKey() shape for pantry lookups.
+const _itemKey = (it) => ((it && it.item) || "").toLowerCase().trim();
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1) PantryToggle({ items, onToggle })
+//
+// Replaces the read-only "On hand" strip. Each item is a tappable pill.
+// Filled vermilion when in pantry · hairline-bordered when not.
+//
+// Props:
+//   items    — array of { item: string, inPantry: boolean }  (item = normalized key)
+//   onToggle — (itemKey, nextInPantry) => void
+// ═════════════════════════════════════════════════════════════════════════════
+function PantryToggle({ items, onToggle }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="border-x border-b border-border bg-bg0 px-9 py-6">
+      <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-terra mb-3">
+        On hand · tap to toggle
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((it) => {
+          const k = _itemKey(it);
+          const on = !!it.inPantry;
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onToggle && onToggle(k, !on)}
+              style={{ minHeight: 44 }}
+              className={`px-4 py-2 text-[13px] font-medium transition select-none ${
+                on
+                  ? "bg-terra text-bg0 border border-terra hover:bg-terra/90"
+                  : "bg-cream text-ink border border-ink/40 hover:border-ink"
+              }`}
+              aria-pressed={on}
+            >
+              {on ? "✓ " : ""}{it.item}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2) ItemSourceMenu({ item, currentSource, onChange })
+//
+// Click on the source pill opens a 4-option dropdown.
+// Pick → onChange(newSource) → caller wires to MP.api.setSource(item, source).
+//
+// Props:
+//   item          — string  raw ingredient name (passed to MP.api.setSource)
+//   currentSource — string  current canonical source key
+//   onChange      — (newSource) => void
+// ═════════════════════════════════════════════════════════════════════════════
+function ItemSourceMenu({ item, currentSource, onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  // close on outside click / esc — keeps the menu local without a portal.
+  React.useEffect(() => {
+    if (!open) return;
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function onKey(e) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const meta = _sourcePillMeta(currentSource);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{ minHeight: 44 }}
+        className={`font-mono uppercase tracking-[0.14em] text-[10px] px-2.5 py-2 hover:opacity-80 ${meta.cls}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`Change source for ${item}`}
+      >
+        {meta.label} ▾
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 min-w-[180px] bg-cream border border-ink shadow-lg"
+        >
+          {SOURCE_ORDER.map((src) => {
+            const active = src === currentSource;
+            return (
+              <button
+                key={src}
+                role="menuitem"
+                type="button"
+                onClick={() => { setOpen(false); onChange && onChange(src); }}
+                style={{ minHeight: 44 }}
+                className={`w-full text-left px-4 py-2 text-[13px] block border-b border-border last:border-b-0 ${
+                  active ? "bg-terra text-bg0" : "bg-cream text-ink hover:bg-bg0"
+                }`}
+              >
+                {SOURCE_LABELS[src]}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3) ExtrasEditor({ extras, onAdd, onUpdate, onRemove })
+//
+// Standalone card section. Lists existing extras (name · source · ✕). Form
+// below to add a new extra. Wires to MP.api.addExtra / removeExtra / updateExtra.
+//
+// Props:
+//   extras   — array of { id, item, source, done? }
+//   onAdd    — ({ item, source }) => void
+//   onUpdate — (id, patch) => void
+//   onRemove — (id) => void
+// ═════════════════════════════════════════════════════════════════════════════
+function ExtrasEditor({ extras, onAdd, onUpdate, onRemove }) {
+  const [name, setName] = React.useState("");
+  const [src, setSrc]   = React.useState("supermarket");
+
+  function submit(e) {
+    e.preventDefault();
+    const v = name.trim();
+    if (!v) return;
+    onAdd && onAdd({ item: v, source: src });
+    setName("");
+  }
+
+  return (
+    <div className="border-x border-b border-border bg-cream p-9">
+      <div className="font-mono uppercase tracking-[0.16em] text-[11px] text-warm mb-2">
+        Non-recipe items · {(extras || []).length}
+      </div>
+      <h3 className="font-display text-[24px] leading-[1.1] mb-5">
+        Extras <em className="text-terra not-italic" style={{ fontStyle: "italic" }}>for the basket</em>.
+      </h3>
+
+      {/* existing list */}
+      {extras && extras.length > 0 && (
+        <ul className="mb-6 border-t border-border">
+          {extras.map((x) => {
+            const meta = _sourcePillMeta(x.source);
+            const done = !!x.done;
+            return (
+              <li
+                key={x.id}
+                className="grid grid-cols-[20px_1fr_auto_auto] items-center gap-3 py-3 border-b border-border"
+              >
+                <input
+                  type="checkbox"
+                  checked={done}
+                  onChange={(e) => onUpdate && onUpdate(x.id, { done: e.target.checked })}
+                  className="w-5 h-5 accent-terra cursor-pointer"
+                  aria-label={`Mark ${x.item} bought`}
+                />
+                <span className={`font-display text-[15px] ${done ? "line-through text-warm" : "text-ink"}`}>
+                  {x.item}
+                </span>
+                <span className={`font-mono uppercase tracking-[0.14em] text-[10px] px-2 py-1 ${meta.cls}`}>
+                  {meta.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemove && onRemove(x.id)}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className="text-warm hover:text-terra text-[18px] leading-none"
+                  aria-label={`Remove ${x.item}`}
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* add form */}
+      <form onSubmit={submit} className="flex flex-wrap gap-3 items-stretch">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. toilet paper"
+          style={{ minHeight: 44 }}
+          className="flex-1 min-w-[12rem] bg-cream border border-ink/40 px-4 py-2 text-[15px] focus:outline-none focus:border-ink"
+        />
+        <select
+          value={src}
+          onChange={(e) => setSrc(e.target.value)}
+          style={{ minHeight: 44 }}
+          className="bg-cream border border-ink/40 px-3 py-2 text-[15px]"
+        >
+          {SOURCE_ORDER.map((s) => (
+            <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          style={{ minHeight: 44 }}
+          className="bg-terra text-bg0 text-[15px] font-medium px-5 py-2 hover:bg-terra/90 active:bg-terra/80"
+        >
+          Add
+        </button>
+      </form>
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6) HktvLink({ keyword })
+//
+// Compact deep-link to HKTVmall keyword search. Used inline in shopping rows.
+// (Defined before ShoppingByStore / ShoppingByRecipe so it's in scope.)
+// ═════════════════════════════════════════════════════════════════════════════
+function HktvLink({ keyword }) {
+  const url = `https://www.hktvmall.com/hktv/en/search?keyword=${encodeURIComponent(keyword || "")}`;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener"
+      className="text-terra text-[13px] inline-flex items-center gap-1 hover:underline"
+      style={{ minHeight: 44 }}
+    >
+      Open in HKTVmall →
+    </a>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7) WhatsAppShareButton({ shoppingList, source })
+//
+// Builds a formatted text for one source group and opens whatsapp://send.
+// shoppingList = the groups[source] subtree from MP.buildShoppingList → { [category]: [{item, amount, unit}] }
+// ═════════════════════════════════════════════════════════════════════════════
+function WhatsAppShareButton({ shoppingList, source, weekStart }) {
+  function build() {
+    const lines = [];
+    lines.push(`Shopping list — ${SOURCE_LABELS[source] || source}`);
+    if (weekStart) {
+      const d = new Date(weekStart + "T00:00:00");
+      const dd = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+      lines.push(dd);
+    }
+    lines.push("");
+    const catEmoji = { meat: "🥩", produce: "🥬", dairy: "🥚", pantry: "🌾", bakery: "🥖", frozen: "❄️", other: "📦" };
+    for (const [cat, items] of Object.entries(shoppingList || {})) {
+      if (!items || !items.length) continue;
+      lines.push(`${catEmoji[cat] || "•"} ${CATEGORY_LABELS[cat] || cat}:`);
+      for (const it of items) {
+        const qty = _formatQty(it.amount, it.unit);
+        lines.push(`- ${it.item} · ${qty}`);
+      }
+      lines.push("");
+    }
+    return lines.join("\n").trim();
+  }
+
+  function share() {
+    const text = build();
+    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+    // some desktops need wa.me as a fallback — try whatsapp:// first via window.open.
+    const w = window.open(url, "_blank");
+    if (!w) window.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={share}
+      style={{ minHeight: 44 }}
+      className="bg-cream text-ink border border-ink text-[13px] font-medium px-4 py-2 hover:bg-bg0 active:bg-sand"
+      title="Share via WhatsApp"
+    >
+      📱 WhatsApp
+    </button>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 4) ShoppingByStore({ recipes, plan, weekStart, sources, extras, pantry,
+//                     onTogglePantry, onChangeSource })
+//
+// Full implementation of the By-Store view. Replaces the stub.
+//
+// Props:
+//   recipes        — full library
+//   plan           — weekplan (passed to MP.buildShoppingList)
+//   weekStart      — ISO date for share/print headers
+//   sources        — { [itemKey]: source } overrides (passed to buildShoppingList)
+//   extras         — array of { id, item, source, done? }
+//   pantry         — { [itemKey]: true } for already-on-hand items
+//   onTogglePantry — (itemKey, have) => void   →  MP.api.togglePantry
+//   onChangeSource — (item, source) => void    →  MP.api.setSource
+// ═════════════════════════════════════════════════════════════════════════════
+function ShoppingByStore({
+  recipes, plan, weekStart, sources, extras, pantry,
+  onTogglePantry, onChangeSource,
+}) {
+  const [search, setSearch] = React.useState("");
+
+  // Compute groups from buildShoppingList (defensive — empty if MP missing).
+  const groups = React.useMemo(() => {
+    if (!window.MP || typeof MP.buildShoppingList !== "function") return {};
+    return MP.buildShoppingList(recipes || [], plan || { days: [] }, sources || {});
+  }, [recipes, plan, sources]);
+
+  // Fold extras into the groups, by their source. Extras are special — they
+  // have no qty, no category beyond "other", and aren't in `pantry`.
+  const groupsWithExtras = React.useMemo(() => {
+    const out = {};
+    for (const src of SOURCE_ORDER) {
+      out[src] = {};
+      const fromGroups = groups[src] || {};
+      for (const [cat, items] of Object.entries(fromGroups)) {
+        out[src][cat] = items.slice();
+      }
+    }
+    for (const x of (extras || [])) {
+      if (x.done) continue;
+      const src = SOURCE_ORDER.includes(x.source) ? x.source : "other";
+      out[src].other = out[src].other || [];
+      out[src].other.push({ item: x.item, amount: "", unit: "", _extra: true, _id: x.id });
+    }
+    return out;
+  }, [groups, extras]);
+
+  function rowsMatch(items) {
+    if (!search.trim()) return items;
+    const q = search.toLowerCase();
+    return items.filter((it) => (it.item || "").toLowerCase().includes(q));
+  }
+
+  function printList() {
+    if (typeof window.print === "function") window.print();
+  }
+
+  // empty state
+  const totalItems = SOURCE_ORDER.reduce(
+    (s, src) => s + Object.values(groupsWithExtras[src] || {}).reduce((a, b) => a + b.length, 0),
+    0
+  );
+  if (totalItems === 0) {
+    return (
+      <div className="border-x border-b border-border p-9 text-center">
+        <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">By store</div>
+        <p className="font-display text-warm">Nothing to shop yet — add meals to the week.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-x border-b border-border bg-cream">
+      {/* search bar */}
+      <div className="px-9 py-5 border-b border-border bg-bg0">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter items…"
+          style={{ minHeight: 44 }}
+          className="w-full max-w-md bg-cream border border-ink/40 px-4 py-2 text-[15px] focus:outline-none focus:border-ink"
+        />
+      </div>
+
+      {SOURCE_ORDER.map((src) => {
+        const cats = groupsWithExtras[src] || {};
+        const itemCount = Object.values(cats).reduce((s, arr) => s + arr.length, 0);
+        if (!itemCount) return null;
+
+        return (
+          <section key={src} className="border-b border-border last:border-b-0">
+            {/* source header */}
+            <div className="flex items-center justify-between flex-wrap gap-3 px-9 py-5 bg-cream">
+              <div>
+                <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-1">
+                  {itemCount} item{itemCount === 1 ? "" : "s"}
+                </div>
+                <h3 className="font-display text-[28px] leading-[1.1]">
+                  {SOURCE_LABELS[src]}
+                </h3>
+              </div>
+              <div className="flex gap-2">
+                <WhatsAppShareButton shoppingList={cats} source={src} weekStart={weekStart} />
+                <button
+                  type="button"
+                  onClick={printList}
+                  style={{ minHeight: 44 }}
+                  className="bg-cream text-ink border border-ink text-[13px] font-medium px-4 py-2 hover:bg-bg0 active:bg-sand"
+                >
+                  🖨 Print
+                </button>
+              </div>
+            </div>
+
+            {/* category sub-groups */}
+            {Object.keys(CATEGORY_LABELS).concat(Object.keys(cats).filter((c) => !CATEGORY_LABELS[c])).map((cat) => {
+              const items = cats[cat];
+              if (!items || !items.length) return null;
+              const filtered = rowsMatch(items);
+              if (!filtered.length) return null;
+              return (
+                <div key={cat} className="border-t border-border px-9 py-4">
+                  <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-3">
+                    {CATEGORY_LABELS[cat] || cat}
+                  </div>
+                  <ul>
+                    {filtered.map((it, i) => {
+                      const k = _itemKey(it);
+                      const has = !!(pantry && pantry[k]);
+                      return (
+                        <li
+                          key={(it._id || "") + "|" + k + "|" + i}
+                          className="grid grid-cols-[20px_1fr_auto_auto_auto] items-center gap-3 py-2 border-b border-border/60 last:border-b-0"
+                        >
+                          {/* tap-to-mark-bought */}
+                          <input
+                            type="checkbox"
+                            checked={has}
+                            onChange={(e) => onTogglePantry && onTogglePantry(k, e.target.checked)}
+                            className="w-5 h-5 accent-terra cursor-pointer"
+                            aria-label={`Mark ${it.item} on hand`}
+                          />
+                          <span className={`font-display text-[15px] ${has ? "line-through text-warm" : "text-ink"}`}>
+                            {it.item}{it._extra ? <span className="ml-2 text-[10px] uppercase tracking-[0.14em] text-warm">extra</span> : null}
+                          </span>
+                          <span className="font-mono text-[12px] text-warm tabular-nums min-w-[4rem] text-right">
+                            {_formatQty(it.amount, it.unit)}
+                          </span>
+                          {/* HKTVmall deep-link only when source is hktvmall (most useful there) */}
+                          {src === "hktvmall" ? <HktvLink keyword={it.item} /> : <span />}
+                          {/* source override */}
+                          <ItemSourceMenu
+                            item={it.item}
+                            currentSource={src}
+                            onChange={(newSrc) => onChangeSource && onChangeSource(it.item, newSrc)}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5) ShoppingByRecipe({ recipes, plan, weekStart, onPlay })
+//
+// One card per recipe in the plan. Hero photo + name + meal/day eyebrow +
+// ingredient list (item · qty · source pill).
+// ═════════════════════════════════════════════════════════════════════════════
+function ShoppingByRecipe({ recipes, plan, weekStart, onPlay }) {
+  const recipeMap = React.useMemo(() => {
+    const m = {};
+    (recipes || []).forEach((r) => { m[r.id] = r; });
+    return m;
+  }, [recipes]);
+
+  // Each entry = a (date, mealType, recipe) tuple. A recipe used twice in a
+  // week shows up twice — visually intentional, since the qty is per-meal.
+  const entries = React.useMemo(() => {
+    const out = [];
+    if (!plan || !plan.days) return out;
+    for (const day of plan.days) {
+      for (const mealType of ["breakfast", "lunch", "dinner"]) {
+        const ids = (window.MP && MP.getMealRecipeIds) ? MP.getMealRecipeIds(day, mealType) : [];
+        for (const id of ids) {
+          const r = recipeMap[id];
+          if (!r) continue;
+          out.push({
+            key: `${day.date}-${mealType}-${id}`,
+            date: day.date,
+            mealType,
+            recipe: r,
+            serves: day[mealType + "_serves"] || plan.serves || 4,
+          });
+        }
+      }
+    }
+    return out;
+  }, [plan, recipeMap]);
+
+  if (!entries.length) {
+    return (
+      <div className="border-x border-b border-border p-9 text-center">
+        <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-warm mb-2">By recipe</div>
+        <p className="font-display text-warm">No recipes in the plan yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-x border-b border-border">
+      {entries.map((e, ci) => {
+        const r = e.recipe;
+        const eyebrow = `${_dayShort(e.date)} ${e.mealType} · serves ${e.serves}`;
+        const thumb = (typeof pickRecipeThumb === "function")
+          ? pickRecipeThumb(r, ci)
+          : (r.thumbnail || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=600&q=80");
+        return (
+          <div key={e.key} className="grid grid-cols-1 md:grid-cols-[280px_1fr] border-b border-border last:border-b-0">
+            {/* photo */}
+            <div className="relative bg-bg0 min-h-[200px] md:min-h-[260px]">
+              <img
+                src={thumb}
+                alt={r.name}
+                className="w-full h-full object-cover block absolute inset-0"
+              />
+              {onPlay && r.youtube_url && (
+                <button
+                  onClick={() => onPlay(r)}
+                  aria-label={`Play ${r.name}`}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-cream/95 text-ink flex items-center justify-center hover:bg-terra hover:text-cream transition"
+                >
+                  <span
+                    className="ml-1"
+                    style={{
+                      borderTop: "8px solid transparent",
+                      borderBottom: "8px solid transparent",
+                      borderLeft: "12px solid currentColor",
+                      width: 0, height: 0, display: "inline-block",
+                    }}
+                  />
+                </button>
+              )}
+            </div>
+
+            {/* body */}
+            <div className="p-7">
+              <div className="font-mono uppercase tracking-[0.16em] text-[11px] text-ink mb-2">
+                {eyebrow}
+              </div>
+              <h3 className="font-display text-[24px] leading-[1.1] mb-5">{r.name}</h3>
+
+              <ul>
+                {(r.ingredients || []).map((ing, i) => {
+                  const meta = _sourcePillMeta(ing.source);
+                  return (
+                    <li
+                      key={i}
+                      className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 py-2 border-b border-border/60 last:border-b-0"
+                    >
+                      <span className="font-display text-[14px] text-ink">{ing.item}</span>
+                      <span className="font-mono text-[11px] text-warm tabular-nums min-w-[3rem] text-right">
+                        {_formatQty(ing.amount, ing.unit)}
+                      </span>
+                      <span className={`font-mono uppercase tracking-[0.14em] text-[9px] px-2 py-0.5 ${meta.cls}`}>
+                        {meta.label}
+                      </span>
+                      {ing.source === "hktvmall" ? <HktvLink keyword={ing.item} /> : <span />}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+
+    // ─── from v3.1-cook-tracking.txt ─────────────────────────────────────
+
+// =====================================================================
+// v3.1-cook-tracking.txt
+// React function components for cook tracking + freshness + prep planning.
+//
+//   - MarkCookedButton        : Today timeline cook-event button → records eaten
+//   - FreshnessPill           : inline pill showing last-eaten status of a recipe
+//   - RecentlyUsedCarousel    : horizontal-scroll row of recently-cooked recipes
+//   - PrepTomorrow            : evening prep card listing tomorrow's overnight tasks
+//   - TranslationVerifyToggle : per-step translation-verified toggle for Leni's view
+//
+// React 18 + Babel, no imports/exports. Top-level globals.
+// Relies on: React, MP (from shared.js).
+// Tailwind tokens used: bg-terra, bg-sand, bg-bg0, text-ink, text-warm,
+// text-bg0, text-terra, border-border, border-warm, font-display, font-mono.
+// Touch targets ≥ 44 on every interactive control.
+// No border-radius (except small dot affordances per house rule).
+// =====================================================================
+
+
+// ---- helpers ----------------------------------------------------------
+
+// Find the eaten-log timestamp for a (recipeId, date) pair, if any.
+// eatenLog shape: { [recipeId]: ["YYYY-MM-DD", ...] } per shared.js.
+// We only have date granularity, so the "HH:MM" in the disabled state is
+// derived from a separate timestamp map IF the API ever returns one;
+// otherwise we just say "Cooked today".
+function eatenOnDate(eatenLog, recipeId, date) {
+  if (!eatenLog || !recipeId || !date) return false;
+  const arr = eatenLog[recipeId] || [];
+  return arr.includes(date);
+}
+
+// Pretty "Xd ago" / "Xw ago" — MP.lastEaten gives us days, we format.
+function fmtAgo(days) {
+  if (days == null) return "";
+  if (days === 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 14) return `${days}d ago`;
+  const w = Math.floor(days / 7);
+  return `${w}w ago`;
+}
+
+// Format Date → "HH:MM" 24h, HK time. We use this when we have a real
+// timestamp (from optimistic local state) for the "Cooked at HH:MM" label.
+function fmtClockHM(d) {
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(d);
+  } catch (e) {
+    return "";
+  }
+}
+
+
+// ---- 1. MarkCookedButton ---------------------------------------------
+// Lives inside Today's timeline cook events.
+// If eatenLog already has (recipeId, day): disabled "✓ Cooked …" label.
+// Else: primary terra button. Tap → MP.api.recordEaten then onCooked().
+//
+// We keep a tiny local "justCooked" state so the post-tap label can show
+// the actual HH:MM the user tapped at, before parent state refreshes.
+function MarkCookedButton({ recipeId, day, eatenLog, onCooked }) {
+  const [busy, setBusy] = React.useState(false);
+  const [justCookedAt, setJustCookedAt] = React.useState(null); // Date or null
+  const [err, setErr] = React.useState(null);
+
+  const alreadyCooked = eatenOnDate(eatenLog, recipeId, day);
+  const isCooked = alreadyCooked || justCookedAt;
+
+  if (isCooked) {
+    // We don't have HH:MM from the server-side log (it stores dates),
+    // so we show the precise time only when WE just recorded it this session.
+    const label = justCookedAt
+      ? `✓ Cooked at ${fmtClockHM(justCookedAt)}`
+      : `✓ Cooked`;
+    return (
+      <div
+        className="inline-flex items-center px-4 font-mono text-[11px] uppercase tracking-[0.16em] text-warm"
+        style={{ minHeight: 44 }}
+        aria-live="polite"
+      >
+        {label}
+      </div>
+    );
+  }
+
+  async function handle() {
+    if (busy || !recipeId || !day) return;
+    setBusy(true); setErr(null);
+    const tapAt = new Date();
+    try {
+      await MP.api.recordEaten(recipeId, day);
+      setJustCookedAt(tapAt);
+      if (typeof onCooked === "function") onCooked();
+    } catch (e) {
+      setErr(e && e.message ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="inline-flex flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={handle}
+        disabled={busy}
+        className="inline-flex items-center justify-center px-5 bg-terra text-bg0 font-mono text-[11px] uppercase tracking-[0.16em] hover:bg-ink disabled:opacity-50"
+        style={{ minHeight: 44 }}
+      >
+        {busy ? "Saving…" : "Mark cooked"}
+      </button>
+      {err ? (
+        <div className="font-mono text-[10px] tracking-[0.14em] text-terra">
+          {err}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+// ---- 2. FreshnessPill ------------------------------------------------
+// Wrapper around MP.lastEaten. Output: small inline pill.
+// Plain Inter 12 px (so we don't add editorial chrome to recipe cards).
+//
+// Status mapping (shared.js MP.lastEaten):
+//   "never"   → "Never cooked"            sage, hairline border
+//   "fresh"   → "Fresh · Xd ago"          terra fg, hairline-vermilion border
+//             (treated as <2 weeks per spec; MP returns this for future-dated
+//              i.e. planned, but we also synthesise it for days < 14 below)
+//   "recent"  → "Recent · Xd ago"         warm, hairline-warm border
+//   "warming" → "Warming · Xd ago"        warm, dashed border
+//   "stale"   → "Stale · Xw ago"          sage italic
+//
+// Note: MP.lastEaten currently returns "fresh" only for future-dated entries.
+// For the spec ("fresh < 2 weeks"), we widen here: any cooked-in-last-14-days
+// gets the "fresh" treatment when days < 14, otherwise we honour what
+// MP.lastEaten returned. Kept small + local — no shared.js change needed.
+function FreshnessPill({ recipe, eatenLog, className }) {
+  if (!recipe || !recipe.id) return null;
+  const today = MP.date.hkToday();
+  const info = MP.lastEaten(recipe.id, eatenLog || {}, today);
+
+  let label, style;
+  const base = "inline-flex items-center px-2 py-0.5 text-[12px] leading-none border";
+
+  if (info.status === "never") {
+    label = "Never cooked";
+    style = "text-warm/70 border-border"; // sage = warm-muted in this palette
+  } else if (info.status === "fresh" || (info.days != null && info.days < 14 && info.status !== "stale")) {
+    // Widen "fresh" to <2 weeks (matches spec). Override warming/recent here.
+    label = `Fresh · ${fmtAgo(info.days)}`;
+    style = "text-terra border-terra";
+  } else if (info.status === "recent") {
+    label = `Recent · ${fmtAgo(info.days)}`;
+    style = "text-warm border-warm/60";
+  } else if (info.status === "warming") {
+    label = `Warming · ${fmtAgo(info.days)}`;
+    style = "text-warm border-warm/60 border-dashed";
+  } else {
+    // stale
+    label = `Stale · ${fmtAgo(info.days)}`;
+    style = "italic text-warm/70 border-border";
+  }
+
+  return (
+    <span className={`${base} ${style} ${className || ""}`}>
+      {label}
+    </span>
+  );
+}
+
+
+// ---- 3. RecentlyUsedCarousel -----------------------------------------
+// Horizontal-scroll row inside RecipePicker top.
+// Sorted by most-recent eaten date desc. Up to 8 cards.
+// Hidden entirely when eatenLog has no entries.
+//
+// Card: 100×100 thumbnail + small recipe name (font-display 14 px).
+// Tap → onPick(recipe). Each card is ≥ 44 tall (it's 100, comfortably so).
+function RecentlyUsedCarousel({ recipes, eatenLog, onPick, onClose }) {
+  if (!eatenLog) return null;
+
+  // Build [{recipe, lastDate}], drop unknowns, sort desc, cap 8.
+  const items = React.useMemo(() => {
+    const byId = {};
+    for (const r of recipes || []) byId[r.id] = r;
+    const out = [];
+    for (const id of Object.keys(eatenLog)) {
+      const dates = eatenLog[id] || [];
+      if (!dates.length) continue;
+      const last = dates.reduce((a, b) => (a > b ? a : b));
+      const r = byId[id];
+      if (!r) continue;
+      out.push({ recipe: r, lastDate: last });
+    }
+    out.sort((a, b) => (a.lastDate < b.lastDate ? 1 : -1));
+    return out.slice(0, 8);
+  }, [recipes, eatenLog]);
+
+  if (items.length === 0) return null;
+
+  function thumbFor(r) {
+    if (r.youtube_url) {
+      const t = MP.youtubeThumb(r.youtube_url, "hqdefault");
+      if (t) return t;
+    }
+    return r.hero_image || null;
+  }
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-warm">
+          Recently cooked
+        </div>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="font-mono text-[10px] uppercase tracking-[0.16em] text-warm hover:text-ink px-2"
+            style={{ minHeight: 44 }}
+            aria-label="Close recently cooked"
+          >
+            Close
+          </button>
+        ) : null}
+      </div>
+
+      <div
+        className="flex gap-3 overflow-x-auto pb-1"
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}
+      >
+        {items.map(({ recipe }) => {
+          const src = thumbFor(recipe);
+          return (
+            <button
+              key={recipe.id}
+              type="button"
+              onClick={() => onPick && onPick(recipe)}
+              className="flex flex-col items-start text-left flex-shrink-0 hover:opacity-90"
+              style={{ width: 100, minHeight: 44 }}
+            >
+              <div
+                className="bg-sand relative overflow-hidden"
+                style={{ width: 100, height: 100 }}
+              >
+                {src ? (
+                  <img
+                    src={src}
+                    alt={recipe.name || ""}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  />
+                ) : null}
+              </div>
+              <div
+                className="font-display text-[14px] leading-tight text-ink mt-1.5 line-clamp-2"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {recipe.name || recipe.id}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ---- 4. PrepTomorrow -------------------------------------------------
+// Card visible on Today view AFTER dinner-serve hour (>= 19:00 HK).
+// Lists tomorrow's overnight prep tasks (defrost / marinate) by reading
+// MP.schedule.buildDayTasks(tomorrow, dayAfter, byId, {}) and filtering
+// to the "nextDay" task types — i.e. tasks whose target meal is on the
+// day AFTER tomorrow but whose execution lands tomorrow night.
+//
+// In MP.schedule.buildDayTasks, "next-day" prep is emitted when called
+// with (currentDay, nextDay, ...) — defrost @ 8am and overnight-marinate
+// @ 8pm. So to get "what Faith should do TONIGHT for TOMORROW", we call
+// buildDayTasks(today, tomorrow, ...) and pick the ones that target tomorrow.
+//
+// Spec asks us to call buildDayTasks(tomorrowDay, dayAfter, ...) — that
+// gives "what Leni should do tomorrow night for the day-after". We honour
+// the spec literally: this card shows what needs to happen overnight from
+// tomorrow into the following day. Title = "Tonight, before bed" stays
+// readable because Faith's planning context is the night before action.
+function PrepTomorrow({ plan, todayKey, recipes }) {
+  const hourNow = MP.date.hkHour();
+  if (hourNow < 19) return null; // only after dinner
+
+  if (!plan || !plan.days || !todayKey) return null;
+
+  const tomorrowKey = MP.date.addDays(todayKey, 1);
+  const dayAfterKey = MP.date.addDays(todayKey, 2);
+
+  const days = plan.days || [];
+  const tomorrow = days.find((d) => d.date === tomorrowKey);
+  const dayAfter = days.find((d) => d.date === dayAfterKey);
+
+  // No plan for tomorrow → don't surface (user hasn't planned yet).
+  if (!tomorrow) return null;
+
+  const byId = {};
+  for (const r of recipes || []) byId[r.id] = r;
+
+  // Per spec: buildDayTasks(tomorrowDay, dayAfter, byId, {}) filtered to
+  // nextDay task types (defrost / overnight marinate). These are the tasks
+  // that buildDayTasks generates from `nextDay`'s recipes — they appear in
+  // the result with kinds "defrost" or "marinate" and a label containing
+  // "tomorrow's". We match on that signature.
+  const tasks = MP.schedule.buildDayTasks(tomorrow, dayAfter || null, byId, {}) || [];
+  const prepTasks = tasks.filter((t) =>
+    (t.kind === "defrost" || t.kind === "marinate") &&
+    typeof t.label === "string" &&
+    t.label.indexOf("tomorrow's") !== -1
+  );
+
+  // Tomorrow's day name + a short date for the serif h3.
+  const dayName = MP.date.dayName(tomorrowKey, "en");
+  const niceDate = MP.date.prettyDate(tomorrowKey, "en");
+
+  function pillFor(kind) {
+    const text = kind === "defrost" ? "DEFROST" : "MARINATE";
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 bg-terra text-bg0 font-mono text-[10px] uppercase tracking-[0.16em]">
+        {text}
+      </span>
+    );
+  }
+
+  function recipeNameFor(t) {
+    const r = t.recipeId ? byId[t.recipeId] : null;
+    if (r && r.name) return r.name;
+    // Fall back: extract from label "Take X out of freezer (for tomorrow's …)"
+    const m = t.label && t.label.match(/^(?:Take|Start marinating)\s+(.+?)(?:\s+\(for|\s+tonight\s+\(for|$)/);
+    return m ? m[1] : (t.recipeId || "");
+  }
+
+  function hoursBefore(t) {
+    // hours_before isn't stored on the task — derive from kind + at:
+    // defrost is queued at 8am for next-day cook, marinate-overnight at 8pm.
+    if (t.kind === "defrost") return "12h+ before";
+    if (t.kind === "marinate") return "8h+ before";
+    return "";
+  }
+
+  return (
+    <div className="bg-sand border-l-4 border-terra p-5 my-6">
+      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-warm mb-1">
+        Tonight, before bed
+      </div>
+      <h3 className="font-display text-[22px] leading-tight text-ink mb-3">
+        For {dayName}, {niceDate}
+      </h3>
+
+      {prepTasks.length === 0 ? (
+        <div className="text-warm text-[14px]">All set for tomorrow.</div>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {prepTasks.map((t, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-3"
+              style={{ minHeight: 44 }}
+            >
+              <div className="pt-0.5">{pillFor(t.kind)}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-ink text-[14px] leading-snug">
+                  {recipeNameFor(t)}
+                </div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-warm mt-0.5">
+                  {hoursBefore(t)} · for {t.meal || "meal"}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+
+// ---- 5. TranslationVerifyToggle --------------------------------------
+// Used in Video Player sidebar. For each step, when lang !== "en" we
+// render a small toggle. Tap → onVerify(stepIndex, lang, true).
+// Parent owns persistence; we keep a tiny optimistic local "verified" flag
+// so the UI flips instantly. If the recipe carries verified flags
+// (e.g. recipe.steps[i].verified_tl === true), we honour those as the
+// initial state.
+function TranslationVerifyToggle({ recipe, stepIndex, lang, onVerify }) {
+  if (!recipe || lang === "en") return null;
+  const step = recipe.steps && recipe.steps[stepIndex];
+  if (!step) return null;
+
+  const verifiedKey = `verified_${lang}`;
+  const initial = !!(step && step[verifiedKey]);
+  const [verified, setVerified] = React.useState(initial);
+
+  // Re-sync if the underlying recipe changes (e.g. parent persisted it).
+  React.useEffect(() => { setVerified(!!(step && step[verifiedKey])); }, [recipe && recipe.id, stepIndex, lang]);
+
+  function handle() {
+    const next = !verified;
+    setVerified(next); // optimistic
+    if (typeof onVerify === "function") onVerify(stepIndex, lang, next);
+  }
+
+  const label = verified ? "✓ Verified" : "Mark verified";
+  const cls = verified
+    ? "bg-terra text-bg0 border-terra"
+    : "bg-bg0 text-warm border-border hover:text-ink";
+
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      className={`inline-flex items-center px-3 border font-mono text-[10px] uppercase tracking-[0.16em] ${cls}`}
+      style={{ minHeight: 44 }}
+      aria-pressed={verified}
+    >
+      {label}
+    </button>
+  );
+}
+
+
+
+    // ─── from v3.1-scaling-preview.txt ─────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v3.1-scaling-preview.txt
+// React 18 + Babel-in-browser. Function components, no imports, top-level globals.
+// Tailwind tokens: cream sand ink terra sage warm bg0 border. Vermilion = terra.
+// No border-radius (except rounded-full where noted). Touch targets >= 44.
+// Uses globals: MP.scale, MP.units.fromCanonical, MP.units.toCanonical,
+//               MP.schedule.dayConflicts, MP.youtubeThumb, MP.recipeImage,
+//               MP.lastEaten, MP.formatDuration.
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ---- Local helpers (top-level — no imports) --------------------------------
+
+// Lang-aware lookup. Recipes may have `name`, `name_tl`, `name_il`, plus
+// `steps`, `steps_tl`, `steps_il` and `ingredients[i].item_tl/_il`.
+function rpName(recipe, lang) {
+  if (!recipe) return "";
+  if (lang === "tl" && recipe.name_tl) return recipe.name_tl;
+  if (lang === "il" && recipe.name_il) return recipe.name_il;
+  return recipe.name || "";
+}
+
+function rpIngredientLabel(ing, lang) {
+  if (!ing) return "";
+  if (lang === "tl" && ing.item_tl) return ing.item_tl;
+  if (lang === "il" && ing.item_il) return ing.item_il;
+  return ing.item || "";
+}
+
+// Returns { steps: array, fellBack: bool }. If translated array missing,
+// fall back to English so Leni still sees something.
+function rpStepsForLang(recipe, lang) {
+  if (!recipe) return { steps: [], fellBack: false };
+  if (lang === "tl" && Array.isArray(recipe.steps_tl) && recipe.steps_tl.length) {
+    return { steps: recipe.steps_tl, fellBack: false };
+  }
+  if (lang === "il" && Array.isArray(recipe.steps_il) && recipe.steps_il.length) {
+    return { steps: recipe.steps_il, fellBack: false };
+  }
+  return { steps: recipe.steps || [], fellBack: lang && lang !== "en" };
+}
+
+// Source pill mini — used inside ingredient rows. Single-letter glyph + label.
+function rpSourcePillMini(source) {
+  const s = (source || "").toLowerCase();
+  let label = "Other", cls = "bg-bg0 text-warm border border-border";
+  if (s === "wet-market" || s === "market") { label = "Wet";   cls = "bg-terra text-cream"; }
+  else if (s === "fusion" || s === "marketplace" || s === "supermarket") {
+    label = "Super"; cls = "bg-sand text-ink";
+  }
+  else if (s === "hktv" || s === "hktvmall") { label = "HKTV";  cls = "bg-bg0 text-ink border border-border"; }
+  else if (s === "pantry" || s === "on-hand") { label = "Pantry"; cls = "bg-cream text-warm"; }
+  return (
+    <span className={`font-mono uppercase tracking-[0.14em] text-[9px] px-1.5 py-0.5 ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// Format a numeric amount with the right precision. Avoids "0.5000" + trailing 0.
+function rpFmtAmt(n) {
+  if (n == null || isNaN(n)) return "";
+  const r = Math.round(n * 100) / 100;
+  if (r >= 100) return String(Math.round(r));
+  if (Number.isInteger(r)) return String(r);
+  return r.toFixed(2).replace(/\.?0+$/, "");
+}
+
+// Scale a single ingredient and pretty-print {amount, unit}. Honours
+// `ing.scales` ('linear' | 'taper' | 'fixed') via MP.scale.
+function rpScaleIngredient(ing, baseServes, currentServes) {
+  if (!ing) return { amt: "", unit: "" };
+  if (window.MP && MP.scale) {
+    const scaled = MP.scale(ing, currentServes, baseServes);
+    // Try to canonicalise then re-format so units stay sensible (g → kg etc).
+    if (MP.units && MP.units.toCanonical && MP.units.fromCanonical && scaled.unit) {
+      try {
+        const can = MP.units.toCanonical(scaled.amount, scaled.unit);
+        if (can.family === "volume" || can.family === "weight") {
+          const out = MP.units.fromCanonical(can.family, can.value);
+          return { amt: rpFmtAmt(out.amount), unit: out.unit };
+        }
+      } catch (e) { /* fall through */ }
+    }
+    return { amt: rpFmtAmt(scaled.amount), unit: scaled.unit || "" };
+  }
+  // Fallback (no shared.js): plain linear scale.
+  const ratio = currentServes / (baseServes || 4);
+  return { amt: rpFmtAmt((ing.amount || 0) * ratio), unit: ing.unit || "" };
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ServesScaler — compact ± pills around a serves count.
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout: [−] {N} servings [+]. Min 1, max 12.
+function ServesScaler({ recipe, currentServes, onChange, className }) {
+  const base = (recipe && recipe.serves_base) || 4;
+  const cur = Math.max(1, Math.min(12, currentServes || base));
+  const dec = () => onChange && onChange(Math.max(1, cur - 1));
+  const inc = () => onChange && onChange(Math.min(12, cur + 1));
+  return (
+    <div className={`inline-flex items-stretch border border-border bg-cream ${className || ""}`}>
+      <button type="button" onClick={dec} disabled={cur <= 1}
+        aria-label="Decrease servings"
+        style={{ minWidth: 44, minHeight: 44 }}
+        className="flex items-center justify-center font-display text-[20px] text-ink hover:bg-bg0 disabled:opacity-40 disabled:cursor-not-allowed border-r border-border">
+        −
+      </button>
+      <div className="flex items-baseline gap-1.5 px-4 min-w-[120px] justify-center" style={{ minHeight: 44 }}>
+        <span className="font-display text-[18px] text-ink tabular-nums leading-none self-center">{cur}</span>
+        <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm self-center">
+          {cur === 1 ? "serving" : "servings"}
+        </span>
+      </div>
+      <button type="button" onClick={inc} disabled={cur >= 12}
+        aria-label="Increase servings"
+        style={{ minWidth: 44, minHeight: 44 }}
+        className="flex items-center justify-center font-display text-[20px] bg-terra text-cream hover:bg-ink disabled:opacity-40 disabled:cursor-not-allowed border-l border-border">
+        +
+      </button>
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. ScaledIngredientsList — recipe ingredients scaled to currentServes.
+// ─────────────────────────────────────────────────────────────────────────────
+// Each row: name (Inter 16px, left) · amount + unit (mono tabular, right).
+// Pantry items ('on_hand' or `ing.in_pantry`) faded sage. Source pill mini.
+function ScaledIngredientsList({ recipe, currentServes, lang, className }) {
+  const items = (recipe && recipe.ingredients) || [];
+  const base = (recipe && recipe.serves_base) || 4;
+  if (!items.length) {
+    return (
+      <div className={`text-warm/60 font-mono text-[11px] uppercase tracking-[0.14em] ${className || ""}`}>
+        No ingredients listed
+      </div>
+    );
+  }
+  return (
+    <ul className={`divide-y divide-border ${className || ""}`}>
+      {items.map((ing, i) => {
+        const { amt, unit } = rpScaleIngredient(ing, base, currentServes);
+        const inPantry = !!(ing.in_pantry || ing.source === "pantry" || ing.source === "on-hand");
+        const name = rpIngredientLabel(ing, lang);
+        return (
+          <li key={i}
+              className={`grid grid-cols-[1fr_auto_auto] gap-3 items-center py-3 ${inPantry ? "text-sage" : "text-ink"}`}>
+            <span className={`text-[16px] leading-tight ${inPantry ? "line-through" : ""}`}>
+              {name}
+            </span>
+            {ing.source ? rpSourcePillMini(ing.source) : <span />}
+            <span className="font-mono text-[13px] tabular-nums text-right text-warm whitespace-nowrap min-w-[5rem]">
+              {amt}{unit ? ` ${unit}` : ""}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FreshnessPill — small status pill for "last cooked N days ago".
+// Local fallback because no shared FreshnessPill exists. Reads MP.lastEaten.
+// ─────────────────────────────────────────────────────────────────────────────
+function FreshnessPillRP({ recipeId, eatenLog, today }) {
+  if (!recipeId || !eatenLog || !window.MP || !MP.lastEaten) return null;
+  const t = today || (MP.date && MP.date.hkToday && MP.date.hkToday());
+  const info = MP.lastEaten(recipeId, eatenLog, t);
+  let label, cls;
+  if (info.status === "never") { label = "Never cooked"; cls = "bg-cream text-warm border border-border"; }
+  else if (info.status === "recent")  { label = `Cooked ${info.days}d ago`; cls = "bg-terra/10 text-terra"; }
+  else if (info.status === "warming") { label = `Cooked ${info.days}d ago`; cls = "bg-sand text-ink"; }
+  else if (info.status === "fresh")   { label = "Planned for this week";    cls = "bg-bg0 text-warm border border-border"; }
+  else                                { label = `${info.days}d since last`; cls = "bg-sage/15 text-sage"; }
+  return (
+    <span className={`inline-block font-mono uppercase tracking-[0.14em] text-[10px] px-2 py-1 ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. RecipePreview — read-only modal. Hero photo, stats, scaler, deps,
+//    ingredients, steps. NOT the video player; calls onPlay to open it.
+// ─────────────────────────────────────────────────────────────────────────────
+function RecipePreview({ recipe, lang, onClose, onEdit, onPlay, eatenLog }) {
+  const initialServes = (recipe && recipe.serves_base) || 4;
+  const [serves, setServes] = React.useState(initialServes);
+
+  // Reset when recipe changes (modal reused for different recipes).
+  React.useEffect(() => { setServes(initialServes); }, [recipe && recipe.id, initialServes]);
+
+  // ESC closes.
+  React.useEffect(() => {
+    function onKey(e) { if (e.key === "Escape" && onClose) onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (!recipe) return null;
+
+  const hero = (window.MP && MP.recipeImage && MP.recipeImage(recipe))
+    || (recipe.youtube_url && window.MP && MP.youtubeThumb && MP.youtubeThumb(recipe.youtube_url, "hqdefault"))
+    || null;
+
+  const active = recipe.active_time_mins || recipe.prep_time_mins || 0;
+  const total  = recipe.cook_time_mins || (active + (recipe.passive_time_mins || 0)) || 0;
+
+  const eyebrowParts = [];
+  if (recipe.cuisine) eyebrowParts.push(String(recipe.cuisine));
+  const mealTypes = Array.isArray(recipe.meal_types) ? recipe.meal_types
+                  : Array.isArray(recipe.meal_type)  ? recipe.meal_type
+                  : recipe.meal_type ? [recipe.meal_type] : [];
+  if (mealTypes.length) eyebrowParts.push(mealTypes.join(" · "));
+
+  const deps = Array.isArray(recipe.dependencies) ? recipe.dependencies : [];
+  const stepsRes = rpStepsForLang(recipe, lang);
+  const fmt = (m) => (window.MP && MP.formatDuration) ? MP.formatDuration(m) : `${m} min`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-stretch md:items-center justify-center bg-ink/40"
+         role="dialog" aria-modal="true" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}
+           className="bg-cream w-full md:max-w-3xl md:max-h-[92vh] overflow-auto flex flex-col">
+
+        {/* Hero photo + close/edit overlay buttons */}
+        <div className="relative w-full">
+          {hero ? (
+            <img src={hero} alt="" className="w-full h-64 object-cover block"
+                 onError={(e) => {
+                   const s = e.target.src;
+                   if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                   if (s.includes("hqdefault"))     { e.target.src = s.replace("hqdefault", "mqdefault"); return; }
+                   e.target.style.display = "none";
+                 }} />
+          ) : (
+            <div className="w-full h-64 bg-sand flex items-center justify-center">
+              <span className="font-mono uppercase tracking-[0.16em] text-[11px] text-warm">No photo</span>
+            </div>
+          )}
+          <div className="absolute top-3 right-3 flex gap-2">
+            {onEdit && (
+              <button type="button" onClick={onEdit} aria-label="Edit recipe"
+                style={{ minWidth: 44, minHeight: 44 }}
+                className="bg-cream/95 hover:bg-cream text-ink flex items-center justify-center font-mono text-[14px] border border-border">
+                ✎
+              </button>
+            )}
+            <button type="button" onClick={onClose} aria-label="Close"
+              style={{ minWidth: 44, minHeight: 44 }}
+              className="bg-cream/95 hover:bg-cream text-ink flex items-center justify-center font-mono text-[18px] border border-border">
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Header — eyebrow + title */}
+        <div className="px-6 md:px-9 pt-6">
+          {eyebrowParts.length > 0 && (
+            <div className="font-mono uppercase tracking-[0.18em] text-[10px] text-warm mb-2">
+              {eyebrowParts.join(" · ")}
+            </div>
+          )}
+          <h2 className="font-display text-[28px] md:text-[32px] leading-[1.05] tracking-[-0.01em] text-ink">
+            {rpName(recipe, lang)}
+          </h2>
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-6 px-6 md:px-9 mt-5">
+          <div>
+            <div className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm">Active</div>
+            <div className="font-display text-[18px] text-ink tabular-nums">{active ? fmt(active) : "—"}</div>
+          </div>
+          <div>
+            <div className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm">Total</div>
+            <div className="font-display text-[18px] text-ink tabular-nums">{total ? fmt(total) : "—"}</div>
+          </div>
+          <div>
+            <div className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm">Base</div>
+            <div className="font-display text-[18px] text-ink tabular-nums">
+              {recipe.serves_base || 4} <span className="text-warm text-[12px]">serves</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Freshness pill */}
+        {eatenLog && (
+          <div className="px-6 md:px-9 mt-4">
+            <FreshnessPillRP recipeId={recipe.id} eatenLog={eatenLog} />
+          </div>
+        )}
+
+        {/* Serves scaler */}
+        <div className="px-6 md:px-9 mt-5 flex flex-wrap items-center gap-3">
+          <span className="font-mono uppercase tracking-[0.14em] text-[10px] text-warm">Scale to</span>
+          <ServesScaler recipe={recipe} currentServes={serves} onChange={setServes} />
+        </div>
+
+        {/* Watch video CTA */}
+        {recipe.youtube_url && onPlay && (
+          <div className="px-6 md:px-9 mt-5">
+            <button type="button" onClick={() => onPlay(recipe)}
+              style={{ minHeight: 44 }}
+              className="w-full md:w-auto inline-flex items-center justify-center gap-2 bg-terra text-cream font-mono uppercase tracking-[0.16em] text-[11px] px-6 py-3 hover:bg-ink transition">
+              ▶ Watch the video
+            </button>
+          </div>
+        )}
+
+        {/* Dependencies banner */}
+        {deps.length > 0 && (
+          <div className="mx-6 md:mx-9 mt-5 border-l-4 border-terra bg-terra/5 px-4 py-3">
+            <div className="font-mono uppercase tracking-[0.16em] text-[10px] text-terra mb-1">Plan ahead</div>
+            <ul className="space-y-1">
+              {deps.map((d, i) => {
+                // Accept either string ("Defrost 12h before") or {action, lead} object.
+                const text = typeof d === "string"
+                  ? d
+                  : (d.action && d.lead ? `${d.action} ${d.lead} before` : (d.label || JSON.stringify(d)));
+                return (
+                  <li key={i} className="text-[13px] text-ink leading-snug">
+                    <span className="text-terra mr-1">⚠</span>{text}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* Ingredients */}
+        <div className="px-6 md:px-9 mt-7">
+          <h3 className="font-mono uppercase tracking-[0.16em] text-[11px] text-warm mb-3">Ingredients</h3>
+          <ScaledIngredientsList recipe={recipe} currentServes={serves} lang={lang} />
+        </div>
+
+        {/* Steps */}
+        <div className="px-6 md:px-9 mt-7 pb-8">
+          <h3 className="font-mono uppercase tracking-[0.16em] text-[11px] text-warm mb-3">
+            Steps
+            {stepsRes.fellBack && (
+              <span className="ml-2 text-warm/60 normal-case tracking-normal">(English)</span>
+            )}
+          </h3>
+          <ol className="space-y-4">
+            {stepsRes.steps.map((s, i) => {
+              const num = (s && s.step) || (i + 1);
+              const text = typeof s === "string" ? s : (s.instruction || s.text || "");
+              return (
+                <li key={i} className="grid grid-cols-[2rem_1fr] gap-3">
+                  <span className="font-display text-terra text-[20px] leading-none tabular-nums">{num}</span>
+                  <div className="font-display text-[16px] leading-relaxed text-ink">{text}</div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
+        {/* Footer */}
+        <div className="mt-auto border-t border-border px-6 md:px-9 py-4 flex flex-wrap gap-3 items-center bg-bg0/50">
+          <button type="button" onClick={onClose}
+            style={{ minHeight: 44 }}
+            className="font-mono uppercase tracking-[0.16em] text-[11px] px-4 py-2.5 border border-border bg-cream text-ink hover:bg-bg0">
+            Close
+          </button>
+          {recipe.youtube_url && onPlay && (
+            <button type="button" onClick={() => onPlay(recipe)}
+              style={{ minHeight: 44 }}
+              className="ml-auto font-mono uppercase tracking-[0.16em] text-[11px] px-5 py-2.5 bg-terra text-cream hover:bg-ink">
+              ▶ Watch video
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. ConflictBadge — Week-view day strip overlap indicator.
+// ─────────────────────────────────────────────────────────────────────────────
+// `day` is the day's plan object; `recipes` is byId map. Pill shown only when
+// MP.schedule.dayConflicts(day, byId) returns issues.
+function ConflictBadge({ day, recipes, className }) {
+  if (!day || !recipes || !window.MP || !MP.schedule || !MP.schedule.dayConflicts) return null;
+  let conflicts = [];
+  try { conflicts = MP.schedule.dayConflicts(day, recipes) || []; }
+  catch (e) { return null; }
+  if (!conflicts.length) return null;
+  const n = conflicts.length;
+  return (
+    <span
+      title={`${n} stove ${n === 1 ? "conflict" : "conflicts"}`}
+      className={`inline-flex items-center bg-terra text-cream font-mono uppercase tracking-[0.18em] text-[10px] px-2 py-1 ${className || ""}`}
+      style={{ paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4 }}
+    >
+      ⚠ overlap{n > 1 ? ` ×${n}` : ""}
+    </span>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. MealServeTimeInput — inline HH:MM input for Week meal tiles.
+// ─────────────────────────────────────────────────────────────────────────────
+function MealServeTimeInput({ value, onChange, className }) {
+  return (
+    <input
+      type="time"
+      value={value || ""}
+      onChange={(e) => onChange && onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      aria-label="Serve time"
+      style={{ minHeight: 44 }}
+      className={`bg-cream text-ink text-[14px] tabular-nums px-3 border border-border hover:border-warm focus:outline-none focus:border-terra transition ${className || ""}`}
+    />
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. MealIngredientStrip — small horizontal recipe-thumb preview row.
+// ─────────────────────────────────────────────────────────────────────────────
+// `recipes` is the meal items (array of {recipeId, role}). `byId` resolves
+// to recipe objects. Used in expanded Week meal tiles.
+function MealIngredientStrip({ recipes, byId, max, className }) {
+  const items = Array.isArray(recipes) ? recipes : [];
+  const cap = max || 5;
+  const shown = items.slice(0, cap);
+  const overflow = Math.max(0, items.length - cap);
+  if (!shown.length) return null;
+  return (
+    <div className={`flex items-center gap-2 ${className || ""}`}>
+      {shown.map((it, i) => {
+        const r = byId && byId[it.recipeId];
+        const src = r && window.MP && MP.recipeImage ? MP.recipeImage(r) : null;
+        const alt = r ? (r.name || "") : "";
+        return (
+          <div key={i} className="w-8 h-8 bg-sand overflow-hidden border border-border shrink-0"
+               title={alt}>
+            {src ? (
+              <img src={src} alt={alt} className="w-full h-full object-cover block"
+                   onError={(e) => {
+                     const s = e.target.src;
+                     if (s.includes("maxresdefault")) { e.target.src = s.replace("maxresdefault", "hqdefault"); return; }
+                     if (s.includes("hqdefault"))     { e.target.src = s.replace("hqdefault", "mqdefault"); return; }
+                     e.target.style.display = "none";
+                   }} />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center font-mono text-[8px] uppercase tracking-[0.14em] text-warm/60">
+                {(it.role || "?").slice(0, 1)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {overflow > 0 && (
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-warm tabular-nums">
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
+}
+
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // end v3.1 components
+    // ════════════════════════════════════════════════════════════════════════════
+
     function planByDate(weekplan) {
       // Convert {days: [{date, breakfast, lunch, dinner}]} → {[date]: dayObj}
       if (!weekplan || !weekplan.days) return {};
@@ -2060,8 +5194,17 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
       );
       const [lang, setLang] = useState(() => localStorage.getItem("mp_lang") || "en");
 
-      // Load data — try cloud first (if token), fall back to bundled seed so the
-      // app always opens with content. Token is only needed to sync your weekly plan.
+      // v3.1 — gap-closing state
+      const [picker, setPicker] = useState(null);            // {dayKey, mealType, role, swapIndex?}
+      const [recipeForm, setRecipeForm] = useState(null);    // null | recipe (new=blank object)
+      const [recipePreview, setRecipePreview] = useState(null);
+      const [eatenLog, setEatenLog] = useState([]);
+      const [pantry, setPantry] = useState([]);
+      const [sources, setSources] = useState({});
+      const [extras, setExtras] = useState([]);
+      const [weekStart, setWeekStart] = useState(() => MP.date.mondayOf(MP.date.hkToday()));
+
+      // Load data — try cloud first, fall back to bundled seed so app always opens with content.
       useEffect(() => {
         const loadSeed = () =>
           fetch("./recipes.seed.json").then((r) => r.json()).catch(() => []);
@@ -2069,11 +5212,19 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
         if (MP.api.hasToken()) {
           Promise.all([
             MP.api.getRecipes().catch(() => null),
-            MP.api.getWeekplan().catch(() => null),
-          ]).then(async ([recs, plan]) => {
+            MP.api.getWeekplanFor ? MP.api.getWeekplanFor(weekStart).catch(() => null) : MP.api.getWeekplan().catch(() => null),
+            MP.api.getEatenLog().catch(() => []),
+            MP.api.getPantry().catch(() => []),
+            MP.api.getSources().catch(() => ({})),
+            MP.api.getExtras().catch(() => []),
+          ]).then(async ([recs, plan, log, pan, src, ext]) => {
             const finalRecs = Array.isArray(recs) && recs.length ? recs : await loadSeed();
             setRecipes(finalRecs);
             setWeekplan(plan);
+            setEatenLog(Array.isArray(log) ? log : []);
+            setPantry(Array.isArray(pan) ? pan : []);
+            setSources(src && typeof src === "object" ? src : {});
+            setExtras(Array.isArray(ext) ? ext : []);
           });
         } else {
           loadSeed().then((recs) => {
@@ -2081,10 +5232,15 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
             setWeekplan(null);
           });
         }
-      }, []);
+      }, [weekStart]);
 
       const todayKey = MP.date.hkToday();
       const planMap = useMemo(() => planByDate(weekplan), [weekplan]);
+      const recipesById = useMemo(() => {
+        const m = {};
+        for (const r of recipes) m[r.id] = r;
+        return m;
+      }, [recipes]);
 
       const completeOnboarding = () => {
         localStorage.setItem("mp_onboarded", "1");
@@ -2099,21 +5255,158 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
         return <Onboarding onContinue={completeOnboarding} />;
       }
 
-      // Token entry available from Settings — but app always opens with seed data.
-
+      // ── Modal openers
       const playRecipe = (recipe) => setActiveRecipe(recipe);
       const closePlayer = () => setActiveRecipe(null);
+      const openPicker = (dayKey, mealType, role) => setPicker({ dayKey, mealType, role: role || "main" });
+      const closePicker = () => setPicker(null);
+      const openRecipeForm = (recipe) => setRecipeForm(recipe || { id: "", name: "", meal_type: ["dinner"], ingredients: [], steps: [] });
+      const closeRecipeForm = () => setRecipeForm(null);
+      const openRecipePreview = (recipe) => setRecipePreview(recipe);
+      const closeRecipePreview = () => setRecipePreview(null);
 
+      // ── Plan mutations
+      const persistPlan = (newPlan) => {
+        setWeekplan(newPlan);
+        if (MP.api.hasToken()) MP.api.putWeekplan(newPlan).catch((e) => console.error("save plan", e));
+      };
+
+      const ensurePlanShape = () => {
+        // Make sure weekplan exists with days[]
+        if (weekplan && Array.isArray(weekplan.days)) return weekplan;
+        const ws = weekStart;
+        const days = [];
+        for (let i = 0; i < 7; i++) {
+          const d = MP.date.addDays(ws, i);
+          days.push({ date: d, day: MP.date.dayName(d).toLowerCase(), breakfast: [], lunch: [], dinner: [] });
+        }
+        return { week_start: ws, serves: 4, days };
+      };
+
+      const onAssignRecipe = ({ recipeId, role }) => {
+        if (!picker) return;
+        const plan = JSON.parse(JSON.stringify(ensurePlanShape()));
+        const day = plan.days.find((d) => d.date === picker.dayKey);
+        if (!day) { closePicker(); return; }
+        const current = MP.getMealRecipes(day[picker.mealType]);
+        if (picker.swapIndex != null) {
+          current[picker.swapIndex] = { recipeId, role };
+        } else {
+          current.push({ recipeId, role });
+        }
+        day[picker.mealType] = current;
+        persistPlan(plan);
+        closePicker();
+      };
+
+      const onRemoveRecipe = (dayKey, mealType, idx) => {
+        if (!weekplan) return;
+        const plan = JSON.parse(JSON.stringify(weekplan));
+        const day = plan.days && plan.days.find((d) => d.date === dayKey);
+        if (!day) return;
+        const current = MP.getMealRecipes(day[mealType]);
+        current.splice(idx, 1);
+        day[mealType] = current;
+        persistPlan(plan);
+      };
+
+      // ── Recipe CRUD
+      const onSaveRecipe = (body) => {
+        const id = body.id || (body.name || "untitled").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const final = { ...body, id };
+        if (MP.api.hasToken()) {
+          MP.api.upsertRecipe(id, final).then(() => {
+            setRecipes((rs) => {
+              const i = rs.findIndex((r) => r.id === id);
+              if (i >= 0) { const cp = rs.slice(); cp[i] = final; return cp; }
+              return rs.concat(final);
+            });
+            closeRecipeForm();
+          }).catch((e) => alert("Save failed: " + e.message));
+        } else {
+          setRecipes((rs) => {
+            const i = rs.findIndex((r) => r.id === id);
+            if (i >= 0) { const cp = rs.slice(); cp[i] = final; return cp; }
+            return rs.concat(final);
+          });
+          closeRecipeForm();
+        }
+      };
+
+      const onDeleteRecipe = (id) => {
+        if (!confirm("Delete this recipe? This cannot be undone.")) return;
+        if (MP.api.hasToken()) {
+          MP.api.deleteRecipe(id).then(() => {
+            setRecipes((rs) => rs.filter((r) => r.id !== id));
+            closeRecipeForm();
+          }).catch((e) => alert("Delete failed: " + e.message));
+        } else {
+          setRecipes((rs) => rs.filter((r) => r.id !== id));
+          closeRecipeForm();
+        }
+      };
+
+      // ── Cook tracking
+      const onCooked = (recipeId, day) => {
+        if (MP.api.hasToken()) {
+          MP.api.recordEaten(recipeId, day).then(() =>
+            MP.api.getEatenLog().then((log) => setEatenLog(Array.isArray(log) ? log : []))
+          ).catch((e) => console.error("record eaten", e));
+        } else {
+          setEatenLog((l) => l.concat({ recipe_id: recipeId, date: day }));
+        }
+      };
+
+      // ── Pantry / sources / extras
+      const onTogglePantry = (item, have) => {
+        setPantry((p) => {
+          const i = p.findIndex((x) => (x.item || x) === item);
+          if (have) {
+            return i >= 0 ? p : p.concat({ item, have: true });
+          } else {
+            return p.filter((x) => (x.item || x) !== item);
+          }
+        });
+        if (MP.api.hasToken()) MP.api.togglePantry(item, have).catch(() => {});
+      };
+      const onChangeSource = (item, source) => {
+        setSources((s) => ({ ...s, [item]: source }));
+        if (MP.api.hasToken()) MP.api.setSource(item, source).catch(() => {});
+      };
+      const onAddExtra = (item, source) => {
+        if (MP.api.hasToken()) {
+          MP.api.addExtra(item, source).then(() =>
+            MP.api.getExtras().then((ex) => setExtras(Array.isArray(ex) ? ex : []))
+          ).catch(() => {});
+        } else {
+          setExtras((e) => e.concat({ id: "local-" + Date.now(), item, source }));
+        }
+      };
+      const onUpdateExtra = (id, patch) => {
+        if (MP.api.hasToken()) MP.api.updateExtra(id, patch).then(() =>
+          MP.api.getExtras().then((ex) => setExtras(Array.isArray(ex) ? ex : []))
+        ).catch(() => {});
+        else setExtras((es) => es.map((e) => e.id === id ? { ...e, ...patch } : e));
+      };
+      const onRemoveExtra = (id) => {
+        if (MP.api.hasToken()) MP.api.removeExtra(id).then(() =>
+          setExtras((es) => es.filter((e) => e.id !== id))
+        ).catch(() => {});
+        else setExtras((es) => es.filter((e) => e.id !== id));
+      };
+
+      // ── Week navigation
+      const goPrevWeek = () => setWeekStart(MP.date.addDays(weekStart, -7));
+      const goNextWeek = () => setWeekStart(MP.date.addDays(weekStart, 7));
+      const goToday = () => setWeekStart(MP.date.mondayOf(MP.date.hkToday()));
+
+      // ── Misc
       const print = () => window.print();
       const share = () => {
         const url = window.location.href;
-        if (navigator.share) {
-          navigator.share({ title: "Meal Planner", url }).catch(() => {});
-        } else if (navigator.clipboard) {
-          navigator.clipboard.writeText(url).then(() => alert("Link copied"));
-        } else {
-          prompt("Copy this URL:", url);
-        }
+        if (navigator.share) navigator.share({ title: "Meal Planner", url }).catch(() => {});
+        else if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => alert("Link copied"));
+        else prompt("Copy this URL:", url);
       };
 
       const members = [
@@ -2124,15 +5417,20 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
       let content;
       if (view === "week") {
         content = (
-          <WeekView
-            recipes={recipes}
-            plan={planMap}
-            todayKey={todayKey}
-            onMealClick={() => {}}
-            onPlayRecipe={playRecipe}
-            onPrintWeek={print}
-            onShare={share}
-          />
+          <React.Fragment>
+            {typeof WeekNavBar !== "undefined" && (
+              <WeekNavBar weekStart={weekStart} weekplan={weekplan} onPrev={goPrevWeek} onNext={goNextWeek} onJumpToToday={goToday} />
+            )}
+            <WeekView
+              recipes={recipes}
+              plan={planMap}
+              todayKey={todayKey}
+              onMealClick={(dayKey, mealType) => openPicker(dayKey, mealType, "main")}
+              onPlayRecipe={playRecipe}
+              onPrintWeek={print}
+              onShare={share}
+            />
+          </React.Fragment>
         );
       } else if (view === "today") {
         content = (
@@ -2141,10 +5439,12 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
             plan={planMap}
             todayKey={todayKey}
             lang={lang}
+            eatenLog={eatenLog}
             onLangChange={onLangChange}
             onPlayRecipe={playRecipe}
             onPrintToday={print}
             onShare={share}
+            onCooked={onCooked}
           />
         );
       } else if (view === "pantry") {
@@ -2153,28 +5453,48 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
             recipes={recipes}
             plan={planMap}
             weekRange={weekplan && { start: weekplan.week_start }}
+            pantry={pantry}
+            sources={sources}
+            extras={extras}
             onPlayRecipe={playRecipe}
             onPrint={print}
             onSendToHelper={share}
+            onTogglePantry={onTogglePantry}
+            onChangeSource={onChangeSource}
+            onAddExtra={onAddExtra}
+            onUpdateExtra={onUpdateExtra}
+            onRemoveExtra={onRemoveExtra}
           />
         );
       } else if (view === "recipes") {
         content = (
           <RecipesView
             recipes={recipes}
+            eatenLog={eatenLog}
             onPlayRecipe={playRecipe}
-            onSelectRecipe={() => {}}
-            onAddRecipe={() => {}}
+            onSelectRecipe={openRecipePreview}
+            onAddRecipe={() => openRecipeForm(null)}
           />
         );
       } else if (view === "settings") {
         content = (
-          <SettingsView
-            members={members}
-            onInvite={(d) => console.log("invite", d)}
-            onRevoke={(m) => console.log("revoke", m)}
-            onCopyMagicLink={(p) => console.log("magic-link", p)}
-          />
+          <React.Fragment>
+            <SettingsView
+              members={members}
+              onInvite={(d) => console.log("invite", d)}
+              onRevoke={(m) => console.log("revoke", m)}
+              onCopyMagicLink={(p) => console.log("magic-link", p)}
+            />
+            {typeof SettingsPanel !== "undefined" && (
+              <div className="border-t border-border bg-cream p-6">
+                <SettingsPanel
+                  initialBase={(localStorage.getItem("mpApiBase") || "")}
+                  initialToken={(localStorage.getItem("mpFaithToken") || "")}
+                  onSaved={() => window.location.reload()}
+                />
+              </div>
+            )}
+          </React.Fragment>
         );
       }
 
@@ -2183,6 +5503,7 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
           <AppShell activeView={view} onNavigate={setView} header={null}>
             {content}
           </AppShell>
+
           {activeRecipe && (
             <VideoPlayerModal
               recipe={activeRecipe}
@@ -2192,6 +5513,38 @@ function RecipesView({ recipes, onPlayRecipe, onSelectRecipe, onAddRecipe }) {
               onStartCooking={() => { closePlayer(); setView("today"); }}
             />
           )}
+
+          {picker && typeof RecipePicker !== "undefined" && (
+            <RecipePicker
+              recipes={recipes}
+              mealRole={picker.role}
+              recentlyEatenIds={(eatenLog || []).slice(-12).map((e) => e.recipe_id)}
+              eatenLog={eatenLog}
+              onPick={onAssignRecipe}
+              onClose={closePicker}
+            />
+          )}
+
+          {recipeForm && typeof RecipeForm !== "undefined" && (
+            <RecipeForm
+              recipe={recipeForm}
+              onSave={onSaveRecipe}
+              onDelete={onDeleteRecipe}
+              onClose={closeRecipeForm}
+            />
+          )}
+
+          {recipePreview && typeof RecipePreview !== "undefined" && (
+            <RecipePreview
+              recipe={recipePreview}
+              lang={lang}
+              eatenLog={eatenLog}
+              onClose={closeRecipePreview}
+              onEdit={() => { const r = recipePreview; closeRecipePreview(); openRecipeForm(r); }}
+              onPlay={() => { const r = recipePreview; closeRecipePreview(); playRecipe(r); }}
+            />
+          )}
+
           <footer className="text-center text-[11px] text-warm/40 py-6 select-none no-print">
             {APP_VERSION}
           </footer>
