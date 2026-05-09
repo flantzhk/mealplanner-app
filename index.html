@@ -791,225 +791,249 @@ function MealTile({ meal, recipes, mealType, onClick, onPlay, accent, accentNote
 function WeekView({ recipes, plan, todayKey, onMealClick, onPlayRecipe, onPrintWeek, onShare }) {
   const byId = React.useMemo(() => indexById(recipes), [recipes]);
 
-  // Build Mon→Sun for the week containing todayKey.
+  // Build Mon→Sun for the week containing todayKey
   const weekStart = MP.date.mondayOf(todayKey);
   const days = [];
   for (let i = 0; i < 7; i++) days.push(MP.date.addDays(weekStart, i));
 
-  const weekEnd = days[6];
-  const weekStartD = MP.date.parse(weekStart);
-  const weekStartDay = weekStartD.getDate();
-  const weekEndD = MP.date.parse(weekEnd);
-  // Approx ISO week number (Mon-based).
-  function isoWeek(dateStr) {
-    const d = MP.date.parse(dateStr);
-    d.setHours(0,0,0,0);
-    d.setDate(d.getDate() + 4 - ((d.getDay() + 6) % 7 + 1));
-    const y0 = new Date(d.getFullYear(), 0, 1);
-    return Math.ceil((((d - y0) / 86400000) + 1) / 7);
-  }
-  const wkNum = isoWeek(todayKey);
-  const monthName = MP.i18n.months.en[weekEndD.getMonth()];
-  const yearNum = weekEndD.getFullYear();
-
-  // Tonight = today's dinner (or lunch if dinner empty).
+  // Pick tonight's hero recipe (today's first dinner item)
   const todayDay = (plan && plan[todayKey]) || {};
-  const tonightMeal = (typeof getMealRecipes === "function" ? getMealRecipes(todayDay.dinner) : []) || [];
-  const tonightRecipes = tonightMeal.map((it) => byId[it.recipeId]).filter(Boolean);
-  const tonightHero = tonightRecipes[0];
-  const tonightDateLabel = `${MP.i18n.days.en[(MP.date.parse(todayKey).getDay() + 6) % 7].slice(0,3)} ${MP.date.parse(todayKey).getDate()} ${MP.i18n.months.en[MP.date.parse(todayKey).getMonth()].slice(0,3)}`;
-
-  // Conflicts for today (used by tonight hero).
-  const todayConflicts = MP.schedule.dayConflicts(todayDay, byId);
-
-  // Stats for the hero (sum across tonight's recipes).
-  let activeMin = 0, totalMin = 0;
-  for (const r of tonightRecipes) {
-    activeMin += r.active_time_mins || r.prep_time_mins || 0;
-    totalMin  += r.cook_time_mins || 0;
-  }
-  const serves = todayDay.dinner_serves || (plan && plan.serves) || 4;
-
-  // Compute conflicts for each day (for the strip vermilion accent).
-  const dayConflictMap = {};
-  for (const k of days) {
-    const d = (plan && plan[k]) || {};
-    const c = MP.schedule.dayConflicts(d, byId);
-    dayConflictMap[k] = c && c.length ? c : null;
-  }
-
-  // Variety + protein balance for footer.
-  const cuisines = new Set();
-  let proteinFish = 0, proteinChicken = 0, proteinVeg = 0;
-  let conflictTotal = 0;
-  for (const k of days) {
-    const day = (plan && plan[k]) || {};
-    if (dayConflictMap[k]) conflictTotal += dayConflictMap[k].length;
-    for (const m of ["breakfast","lunch","dinner"]) {
-      const arr = (typeof getMealRecipes === "function" ? getMealRecipes(day[m]) : []) || [];
-      for (const it of arr) {
-        const r = byId[it.recipeId]; if (!r) continue;
-        if (r.cuisine) cuisines.add(r.cuisine);
-        const tags = (r.tags || []).map(t => String(t).toLowerCase());
-        if (tags.includes("fish") || tags.includes("seafood") || tags.includes("salmon")) proteinFish++;
-        else if (tags.includes("chicken") || tags.includes("poultry")) proteinChicken++;
-        else if (tags.includes("vegetarian") || tags.includes("veg")) proteinVeg++;
-      }
-    }
-  }
+  const tonightItems = MP.getMealRecipes(todayDay.dinner);
+  const heroRecipe = tonightItems.length ? byId[tonightItems[0].recipeId] : null;
 
   return (
-    <div className="bg-bg0">
-      {/* work-head */}
-      <div className="grid grid-cols-[1fr_auto] items-end gap-6 px-9 py-7 border-b border-border">
-        <div>
-          <Eyebrow className="mb-2">Week {wkNum} · {weekStartDay}–{weekEndD.getDate()} {monthName} {yearNum}</Eyebrow>
-          <h1 className="font-display text-[36px] leading-[1.05] tracking-[-0.015em]">This week.</h1>
-        </div>
-        <div className="flex gap-3 items-center">
-          <button onClick={onPrintWeek}
-            className="font-mono text-[11px] uppercase tracking-[0.16em] px-4 py-2.5 border border-border text-ink hover:bg-sand">
-            Print week
-          </button>
-          <button onClick={onShare}
-            style={{ minHeight: 44 }} className="text-[14px] font-medium px-5 py-3 bg-terra text-bg0 hover:bg-terra/90 active:bg-terra/80">
-            Share
-          </button>
-        </div>
-      </div>
-
-      {/* tonight hero */}
-      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr] bg-ink text-bg0 md:min-h-[460px] relative border-b border-border">
-        <div className="relative bg-ink min-h-[260px] md:min-h-[460px] overflow-hidden">
-          {tonightHero && <RecipeImg recipe={tonightHero} size={1200}
-                          className="absolute inset-0 w-full h-full object-cover opacity-90" />}
-          <div className="absolute inset-0"
-               style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(26,26,26,0) 30%, rgba(26,26,26,0.55) 100%)" }} />
-          {tonightHero && (
-            <button type="button" onClick={() => onPlayRecipe && onPlayRecipe(tonightHero)}
-              className="absolute left-1/2 top-1/2 rounded-full bg-terra flex items-center justify-center"
-              style={{ width: 96, height: 96, transform: "translate(-50%,-50%)",
-                       boxShadow: "0 0 0 16px rgba(200,57,43,0.18)" }}>
-              <span style={{ width: 0, height: 0,
-                borderLeft: "26px solid #FAFAF7",
-                borderTop: "17px solid transparent",
-                borderBottom: "17px solid transparent",
-                marginLeft: 4 }} />
+    <div className="bg-cream">
+      {/* TONIGHT HERO — what's coming for dinner */}
+      {heroRecipe && (
+        <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr] bg-ink text-bg0 md:min-h-[400px] relative border-b border-border">
+          <div className="relative bg-ink min-h-[240px] md:min-h-[400px] overflow-hidden">
+            <RecipeImg recipe={heroRecipe} size={1200} className="absolute inset-0 w-full h-full object-cover opacity-90" />
+            <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(26,26,26,0) 30%, rgba(26,26,26,0.55) 100%)" }} />
+            <button type="button" onClick={() => onPlayRecipe && onPlayRecipe(heroRecipe)}
+                    aria-label="Watch tonight's recipe"
+                    className="absolute inset-0 flex items-center justify-center"
+                    style={{ minHeight: 44 }}>
+              <span className="rounded-full bg-terra flex items-center justify-center"
+                    style={{ width: 96, height: 96, boxShadow: "0 0 0 16px rgba(200,57,43,0.18)" }}>
+                <span style={{ width: 0, height: 0,
+                  borderLeft: "26px solid #FAFAF7",
+                  borderTop: "17px solid transparent",
+                  borderBottom: "17px solid transparent",
+                  marginLeft: 6 }} />
+              </span>
             </button>
-          )}
-          {/* pulse top-left */}
-          <div className="absolute top-6 left-6 z-10 inline-flex items-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-bg0">
-            <span className="rounded-full bg-terra" style={{ width: 8, height: 8, animation: "mp-pulse 1800ms ease-in-out infinite" }} />
-            Tonight · {tonightDateLabel}
           </div>
-        </div>
-
-        <div className="flex flex-col justify-between p-12">
-          <div>
-            <Eyebrow className="text-terra mb-4 tracking-[0.18em]">Tonight's dinner</Eyebrow>
-            <h2 className="font-display font-normal text-[56px] leading-[1.0] tracking-[-0.02em]">
-              {tonightRecipes.length === 0
-                ? "No dinner planned."
-                : tonightRecipes.length === 1
-                  ? tonightRecipes[0].name + "."
-                  : tonightRecipes.map(r => r.name).join(" + ") + "."}
+          <div className="px-6 md:px-9 py-7 md:py-10 flex flex-col justify-end">
+            <div className="text-[14px] mb-3 text-bg0/80">Tonight's dinner</div>
+            <h2 className="font-display text-[40px] md:text-[52px] leading-[1.0] tracking-[-0.015em]">
+              {heroRecipe.name}
             </h2>
-            {tonightRecipes.length > 1 && (
-              <p className="font-display text-[17px] leading-[1.5] mt-5 max-w-[380px]"
-                 style={{ color: "rgba(250,250,247,0.78)" }}>
-                {tonightRecipes.length} recipes, one kitchen. Careful timing.
-              </p>
-            )}
-          </div>
-          <div>
-            {todayConflicts && todayConflicts.length > 0 && (
-              <div className="inline-flex items-center gap-2 px-3.5 py-2.5 mb-6 bg-terra text-bg0 font-mono text-[11px] uppercase tracking-[0.14em]">
-                ⚠ {todayConflicts.length === 1 ? "Stove conflict" : `${todayConflicts.length} conflicts`}
-              </div>
-            )}
-            <div className="flex gap-9 pt-6" style={{ borderTop: "1px solid rgba(250,250,247,0.18)" }}>
+            <div className="flex flex-wrap gap-6 mt-5 items-end">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.5)" }}>Serves</div>
-                <div className="font-display text-[22px] leading-[1.1] mt-1">{serves}</div>
-              </div>
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.5)" }}>Active</div>
-                <div className="font-display text-[22px] leading-[1.1] mt-1">{activeMin || "—"} min</div>
-              </div>
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.5)" }}>Total</div>
-                <div className="font-display text-[22px] leading-[1.1] mt-1">{totalMin || "—"} min</div>
-              </div>
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.18em]" style={{ color: "rgba(250,250,247,0.5)" }}>Recipes</div>
-                <div className="font-display text-[22px] leading-[1.1] mt-1">{tonightRecipes.length || 0}</div>
+                <div className="text-[13px] text-bg0/70">Start cooking</div>
+                <div className="font-display text-[24px] md:text-[28px] tabular-nums">
+                  {heroRecipe.prep_time_mins ? "About " + heroRecipe.prep_time_mins + " min before" : "Watch the video"}
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* week strips */}
-      <div>
+      {/* DAYS — stacked vertical cards. Day on top, meals below with component slots. */}
+      <div className="px-4 md:px-9 py-6 md:py-8 space-y-6">
         {days.map((dayKey) => {
-          const isToday = dayKey === todayKey;
           const day = (plan && plan[dayKey]) || {};
+          const isToday = dayKey === todayKey;
+          const dn = MP.date.dayName(dayKey);  // "Monday"
           const d = MP.date.parse(dayKey);
-          const dn = MP.i18n.days.en[(d.getDay() + 6) % 7].slice(0,3);
-          const dd = d.getDate();
-          const dy = MP.i18n.months.en[d.getMonth()].slice(0,3);
-          const conflicted = !!dayConflictMap[dayKey];
+          const dStr = `${MP.date.dayName(dayKey)} · ${d.getDate()} ${monthShort(dayKey)}`;
 
           return (
-            <div key={dayKey}
-                 className={`grid grid-cols-[64px_1fr] md:grid-cols-[92px_1fr] border-b border-border card-tap ${isToday ? "border-t-2 border-t-terra" : ""}`}>
-              <div className="py-4 md:py-6 pl-4 md:pl-7 pr-0 border-r border-border">
-                <div className={`font-mono text-[10px] uppercase tracking-[0.18em] ${isToday ? "text-terra" : "text-warm"}`}>
-                  {dn}{isToday ? " · today" : ""}
+            <div key={dayKey} className={`border border-border bg-bg0 ${isToday ? "border-t-[3px] border-t-terra" : ""}`}>
+              <div className={`px-5 md:px-7 py-4 md:py-5 border-b border-border ${isToday ? "bg-cream" : "bg-bg0"}`}>
+                <div className={`text-[12px] md:text-[13px] mb-1 ${isToday ? "text-terra font-semibold uppercase tracking-[0.16em]" : "text-warm uppercase tracking-[0.12em]"}`}>
+                  {isToday ? "Today · " + dn : dn}
                 </div>
-                <div className="font-display text-[28px] md:text-[38px] leading-none mt-2 text-ink">{dd}</div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-warm/60 mt-2">{dy}</div>
+                <div className="font-display text-[24px] md:text-[28px] leading-none tracking-[-0.01em] text-ink">
+                  {d.getDate()} {monthLong(dayKey)}
+                </div>
               </div>
-              <div className={`grid grid-cols-1 md:grid-cols-3 ${conflicted && isToday ? "" : ""}`}
-                   style={ conflicted ? {
-                     background: "linear-gradient(90deg, transparent 0%, rgba(200,57,43,0.06) 65%, rgba(200,57,43,0.10) 100%)"
-                   } : undefined }>
-                {["breakfast","lunch","dinner"].map((m) => {
-                  const arr = (typeof getMealRecipes === "function" ? getMealRecipes(day[m]) : []) || [];
-                  const accent = isToday && m === "dinner" && arr.length > 0;
-                  let accentNote = null;
-                  if (accent && conflicted) {
-                    accentNote = "⚠ stove overlap";
-                  }
-                  return (
-                    <MealTile key={m}
-                      meal={arr}
-                      recipes={recipes}
-                      mealType={m}
-                      onClick={() => onMealClick && onMealClick(dayKey, m)}
-                      onPlay={(r) => onPlayRecipe && onPlayRecipe(r)}
-                      accent={accent}
-                      accentNote={accentNote}
-                    />
-                  );
-                })}
+
+              {/* Meals stacked vertically */}
+              <div className="flex flex-col">
+                {[
+                  { key: "breakfast", label: "Breakfast", serveDefault: "08:00" },
+                  { key: "lunch",     label: "Lunch",     serveDefault: "12:30" },
+                  { key: "dinner",    label: "Dinner",    serveDefault: "19:00" },
+                ].map((m, mi) => (
+                  <MealSection
+                    key={m.key}
+                    dayKey={dayKey}
+                    mealType={m.key}
+                    label={m.label}
+                    serveTime={day[m.key + "_time"] || m.serveDefault}
+                    items={MP.getMealRecipes(day[m.key])}
+                    byId={byId}
+                    onSlotClick={(role) => onMealClick && onMealClick(dayKey, m.key, role)}
+                    onPlayRecipe={onPlayRecipe}
+                  />
+                ))}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* keyframes for the pulse + ken-burns (scoped via style tag) */}
       <style>{`
-        @keyframes mp-pulse {
-          0%,100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(200,57,43,0.55); }
-          50%     { transform: scale(1.18); opacity: 0.85; box-shadow: 0 0 0 8px rgba(200,57,43,0); }
-        }
-        @keyframes mp-kenburns {
-          0%   { transform: scale(1.0) translate(0,0); }
-          100% { transform: scale(1.08) translate(-1.5%, 1%); }
-        }
+        @keyframes mp-pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: 0.85; } }
+        @keyframes mp-kenburns { 0% { transform: scale(1); } 100% { transform: scale(1.08); } }
       `}</style>
+    </div>
+  );
+}
+
+function monthShort(dateStr) {
+  const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return m[MP.date.parse(dateStr).getMonth()];
+}
+function monthLong(dateStr) {
+  const m = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return m[MP.date.parse(dateStr).getMonth()];
+}
+
+// MealSection — one of Breakfast/Lunch/Dinner inside a day card.
+// Shows: label + serve time + 5 component slots (Protein / Vegetable / Carb / Salad / Soup).
+function MealSection({ dayKey, mealType, label, serveTime, items, byId, onSlotClick, onPlayRecipe }) {
+  // Group items by role
+  const byRole = {};
+  for (const it of items) {
+    const role = (it.role || "main").toLowerCase();
+    (byRole[role] || (byRole[role] = [])).push(it);
+  }
+  // Display roles + map old/new role names
+  const SLOTS = [
+    { key: "main",      label: "Protein",     aliases: ["protein", "main"] },
+    { key: "vegetable", label: "Vegetable",   aliases: ["vegetable", "veg", "side"] },
+    { key: "carb",      label: "Carb",        aliases: ["carb", "starch", "grain"] },
+    { key: "salad",     label: "Salad",       aliases: ["salad"] },
+    { key: "soup",      label: "Soup",        aliases: ["soup"] },
+  ];
+
+  return (
+    <div className="border-b border-border last:border-b-0">
+      <div className="px-5 md:px-7 pt-5 pb-3 flex items-baseline justify-between">
+        <h3 className="font-display text-[22px] md:text-[24px] leading-none">{label}</h3>
+        <div className="text-[14px] text-warm">Serve at {fmtServeTime(serveTime)}</div>
+      </div>
+      <div className="px-3 md:px-5 pb-4 grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
+        {SLOTS.map((slot) => {
+          const slotItems = [];
+          for (const a of slot.aliases) {
+            if (byRole[a]) slotItems.push(...byRole[a]);
+          }
+          return (
+            <ComponentSlot
+              key={slot.key}
+              role={slot.key}
+              label={slot.label}
+              items={slotItems}
+              byId={byId}
+              onAdd={() => onSlotClick && onSlotClick(slot.key)}
+              onPlay={onPlayRecipe}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function fmtServeTime(t) {
+  if (!t) return "—";
+  const [h, mn] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "pm" : "am";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(mn || 0).padStart(2, "0")} ${ampm}`;
+}
+
+// ComponentSlot — labelled button. Empty = "+ Add protein". Filled = thumbnail + name (+ count if many).
+function ComponentSlot({ role, label, items, byId, onAdd, onPlay }) {
+  const filled = items && items.length > 0;
+  if (!filled) {
+    return (
+      <button type="button" onClick={onAdd}
+              style={{ minHeight: 88 }}
+              className="text-left border border-dashed border-border bg-bg0 hover:border-terra hover:bg-cream active:bg-sand p-3 transition-colors">
+        <div className="text-[12px] uppercase tracking-[0.14em] text-warm mb-1">{label}</div>
+        <div className="text-[15px] text-terra font-medium">+ Add {label.toLowerCase()}</div>
+      </button>
+    );
+  }
+  if (items.length === 1) {
+    const r = byId[items[0].recipeId];
+    if (!r) return (
+      <button type="button" onClick={onAdd}
+              style={{ minHeight: 88 }}
+              className="text-left border border-border bg-bg0 p-3">
+        <div className="text-[12px] uppercase tracking-[0.14em] text-terra mb-1">{label}</div>
+        <div className="text-[14px] text-warm">Recipe missing</div>
+      </button>
+    );
+    return (
+      <div className="border border-border bg-cream relative">
+        <button type="button" onClick={() => onPlay && onPlay(r)}
+                style={{ minHeight: 88 }}
+                className="w-full text-left grid grid-cols-[64px_1fr] gap-3 p-3 hover:bg-bg0 active:bg-sand">
+          <div className="w-16 h-16 bg-sand relative">
+            <RecipeImg recipe={r} size={200} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-[0.14em] text-terra font-semibold mb-1">{label}</div>
+            <div className="font-display text-[15px] leading-tight truncate">{r.name}</div>
+            <div className="text-[12px] text-warm mt-1">▶ Watch · {r.cook_time_mins || "?"} min</div>
+          </div>
+        </button>
+        <button type="button" onClick={onAdd}
+                style={{ minHeight: 32 }}
+                className="w-full text-[12px] text-terra py-2 border-t border-border hover:bg-bg0 active:bg-sand">
+          + Add another {label.toLowerCase()}
+        </button>
+      </div>
+    );
+  }
+  // Multi-recipe slot
+  return (
+    <div className="border border-border bg-cream">
+      <div className="px-3 pt-2.5 pb-1.5 border-b border-border flex items-baseline justify-between">
+        <span className="text-[11px] uppercase tracking-[0.14em] text-terra font-semibold">{label}</span>
+        <span className="text-[11px] text-warm">{items.length} recipes</span>
+      </div>
+      <div className="flex flex-col">
+        {items.map((it, i) => {
+          const r = byId[it.recipeId];
+          if (!r) return null;
+          return (
+            <button key={i} type="button" onClick={() => onPlay && onPlay(r)}
+                    style={{ minHeight: 56 }}
+                    className="text-left grid grid-cols-[40px_1fr_auto] gap-2.5 px-3 py-2 border-b border-border last:border-b-0 hover:bg-bg0 active:bg-sand">
+              <div className="w-10 h-10 bg-sand">
+                <RecipeImg recipe={r} size={120} />
+              </div>
+              <div className="min-w-0">
+                <div className="font-display text-[14px] leading-tight truncate">{r.name}</div>
+                <div className="text-[11px] text-warm mt-0.5">{r.cook_time_mins || "?"} min</div>
+              </div>
+              <span className="text-terra text-[14px]">▶</span>
+            </button>
+          );
+        })}
+        <button type="button" onClick={onAdd}
+                style={{ minHeight: 36 }}
+                className="text-[12px] text-terra py-2 hover:bg-bg0 active:bg-sand">
+          + Add another {label.toLowerCase()}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1423,7 +1447,7 @@ function sourcePillMeta(source) {
       return { label: "Wet market", cls: "bg-terra text-cream" };
     case "fusion":
     case "marketplace":
-      return { label: "Fusion", cls: "bg-sand text-ink" };
+      return { label: "Supermarket", cls: "bg-sand text-ink" };
     case "hktv":
     case "hktvmall":
       return { label: "HKTVmall", cls: "bg-bg0 text-ink" };
@@ -3627,7 +3651,7 @@ const _sourcePillMeta = (typeof sourcePillMeta === "function")
       switch (source) {
         case "wet-market": case "market":      return { label: "Wet market", cls: "bg-terra text-cream" };
         case "fusion": case "marketplace": case "supermarket":
-                                                return { label: "Fusion",     cls: "bg-sand text-ink" };
+                                                return { label: "Supermarket", cls: "bg-sand text-ink" };
         case "hktv": case "hktvmall":          return { label: "HKTVmall",   cls: "bg-bg0 text-ink" };
         case "pantry": case "on-hand":         return { label: "On hand",    cls: "bg-cream text-warm" };
         default:                                return { label: (source || "Other").toString(), cls: "bg-bg0 text-warm" };
@@ -3652,10 +3676,10 @@ const _dayShort = (typeof dayShort === "function")
 // "wet-market" | "supermarket" | "hktvmall" | "other". UI labels via SOURCE_LABELS.
 const SOURCE_ORDER = ["wet-market", "supermarket", "hktvmall", "other"];
 const SOURCE_LABELS = {
-  "wet-market": "🥬 Wet market",
-  "supermarket": "🛒 Fusion / Marketplace",
-  "hktvmall":   "📦 HKTVmall",
-  "other":      "On hand / other",
+  "wet-market": "Wet market",
+  "supermarket": "Supermarket",
+  "hktvmall":   "HKTVmall",
+  "other":      "Other / on hand",
 };
 const CATEGORY_LABELS = {
   meat:    "Meat & Seafood",
@@ -4739,18 +4763,18 @@ function rpStepsForLang(recipe, lang) {
   return { steps: recipe.steps || [], fellBack: lang && lang !== "en" };
 }
 
-// Source pill mini — used inside ingredient rows. Single-letter glyph + label.
+// Source pill mini — used inside ingredient rows. Full source name, no abbreviations.
 function rpSourcePillMini(source) {
   const s = (source || "").toLowerCase();
   let label = "Other", cls = "bg-bg0 text-warm border border-border";
-  if (s === "wet-market" || s === "market") { label = "Wet";   cls = "bg-terra text-cream"; }
+  if (s === "wet-market" || s === "market") { label = "Wet market";  cls = "bg-terra text-cream"; }
   else if (s === "fusion" || s === "marketplace" || s === "supermarket") {
-    label = "Super"; cls = "bg-sand text-ink";
+    label = "Supermarket"; cls = "bg-sand text-ink";
   }
-  else if (s === "hktv" || s === "hktvmall") { label = "HKTV";  cls = "bg-bg0 text-ink border border-border"; }
-  else if (s === "pantry" || s === "on-hand") { label = "Pantry"; cls = "bg-cream text-warm"; }
+  else if (s === "hktv" || s === "hktvmall") { label = "HKTVmall";  cls = "bg-bg0 text-ink border border-border"; }
+  else if (s === "pantry" || s === "on-hand") { label = "On hand";  cls = "bg-cream text-warm"; }
   return (
-    <span className={`font-mono uppercase tracking-[0.14em] text-[9px] px-1.5 py-0.5 ${cls}`}>
+    <span className={`text-[11px] font-medium px-2 py-1 ${cls}`}>
       {label}
     </span>
   );
@@ -5425,7 +5449,7 @@ function MealIngredientStrip({ recipes, byId, max, className }) {
               recipes={recipes}
               plan={planMap}
               todayKey={todayKey}
-              onMealClick={(dayKey, mealType) => openPicker(dayKey, mealType, "main")}
+              onMealClick={(dayKey, mealType, role) => openPicker(dayKey, mealType, role || "main")}
               onPlayRecipe={playRecipe}
               onPrintWeek={print}
               onShare={share}
